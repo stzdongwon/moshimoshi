@@ -357,19 +357,49 @@ if(SR){
     interimEl.textContent=interim;
     if(final){interimEl.textContent='';handleUser(final.trim());}
   };
-  recog.onerror=(e)=>{stopListening();
+  recog.onerror=(e)=>{
+    state.listening=false;
+    micBtn.classList.remove('listening');
     if(e.error==='not-allowed')addSys('⚠ 마이크 권한이 필요합니다. 브라우저 설정에서 허용해주세요.');
-    else if(e.error==='no-speech')hint.textContent='소리가 안 들렸어요. 다시 눌러 말해보세요.';
+    else if(e.error==='no-speech'){hint.textContent='소리가 안 들렸어요. 다시 눌러 말해보세요.';}
+    else if(e.error==='aborted'){/* 정상 중단 — 무시 */}
+    else hint.textContent='인식 오류('+e.error+'). 다시 눌러보세요.';
   };
-  recog.onend=()=>{if(state.listening)stopListening();};
+  recog.onend=()=>{
+    // 인식 세션이 끝나면 항상 상태 리셋 (다음 start가 깨끗하게 되도록)
+    state.listening=false;
+    micBtn.classList.remove('listening');
+    if(!state.busy) hint.textContent='마이크를 누르고 일본어로 말해보세요';
+  };
 }else{ hint.textContent='이 브라우저는 음성 인식을 지원하지 않아요. ⌨ 텍스트 입력을 이용하세요.'; }
 
 function startListening(){
   if(!recog||state.busy)return;
+  // TTS가 재생 중이면 확실히 멈춤 (모바일 오디오 충돌 방지)
   speechSynthesis.cancel();
-  try{recog.start();}catch(e){return;}
-  state.listening=true;micBtn.classList.add('listening');
-  hint.textContent='듣고 있어요... 다시 누르면 중지';
+  // 혹시 이전 인식 세션이 아직 안 끝났으면 정리 후, 살짝 텀을 두고 시작
+  try{ recog.abort(); }catch(e){}
+  setTimeout(function(){
+    try{
+      recog.start();
+      state.listening=true;
+      micBtn.classList.add('listening');
+      hint.textContent='듣고 있어요... 다시 누르면 중지';
+    }catch(err){
+      // start가 실패하면(이미 시작됨 등) 한 번 더 정리 후 재시도
+      try{ recog.abort(); }catch(e){}
+      setTimeout(function(){
+        try{
+          recog.start();
+          state.listening=true;
+          micBtn.classList.add('listening');
+          hint.textContent='듣고 있어요... 다시 누르면 중지';
+        }catch(e2){
+          hint.textContent='마이크를 시작할 수 없어요. ⌨ 텍스트로 입력해보세요.';
+        }
+      },250);
+    }
+  },150);
 }
 function stopListening(){
   state.listening=false;micBtn.classList.remove('listening');
@@ -396,7 +426,7 @@ async function handleUser(text){
     state.history.push({role:'assistant',content:raw});
     renderAi(raw);
   }catch(e){ addSys('⚠ '+(e.message||'응답 오류. 다시 시도해주세요.')); }
-  setStatus('통화 중');hint.textContent='마이크를 누르고 일본어로 말해보세요';
+  setStatus('통화 중');hint.textContent='🎙 말하기를 눌러 이어서 말해보세요';
   state.busy=false;micBtn.disabled=false;
   if(state.history.length>40)state.history=state.history.slice(-40);
 }
