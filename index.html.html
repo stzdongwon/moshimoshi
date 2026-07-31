@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>もしもし — 일본어 통화 연습</title>
+<script src="https://js.puter.com/v2/"></script>
+<style>
+  :root{
+    --night:#1a1c2e; --night-2:#242741; --paper:#f4f1ea;
+    --coral:#e8836b; --jade:#7fb0a3; --gold:#e6c07a;
+    --muted:#8a8ca3; --line:rgba(255,255,255,.08);
+    --red:#d76a5c;
+    --font-jp:"Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",sans-serif;
+    --font-ui:"Pretendard","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:radial-gradient(120% 80% at 50% -10%, #2b2e4d 0%, var(--night) 55%),var(--night);
+    color:var(--paper);font-family:var(--font-ui);
+    display:flex;justify-content:center;-webkit-tap-highlight-color:transparent;
+  }
+  .app{width:100%;max-width:460px;min-height:100dvh;display:flex;flex-direction:column;position:relative}
+
+  header{padding:22px 22px 10px;display:flex;align-items:center;justify-content:space-between}
+  .who{display:flex;align-items:center;gap:12px}
+  .avatar{width:44px;height:44px;border-radius:50%;background:linear-gradient(140deg,var(--jade),#5f8f83);display:grid;place-items:center;font-family:var(--font-jp);font-size:20px;color:#0f1a17;font-weight:700}
+  .avatar.speaking{animation:pulse 1.4s ease-out infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(127,176,163,.45)}100%{box-shadow:0 0 0 18px rgba(127,176,163,0)}}
+  .who h1{font-size:16px;font-weight:600}
+  .who .sub{font-size:12px;color:var(--muted);margin-top:2px}
+  .timer{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+
+  .transcript{flex:1;overflow-y:auto;padding:14px 18px 8px;display:flex;flex-direction:column;gap:12px;scroll-behavior:smooth}
+  .bubble{max-width:82%;padding:11px 14px;border-radius:16px;font-size:15px;line-height:1.55;white-space:pre-wrap;word-break:break-word;animation:rise .28s ease}
+  @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .bubble .jp{font-family:var(--font-jp)}
+  .bubble.ai{align-self:flex-start;background:var(--night-2);border:1px solid var(--line);border-bottom-left-radius:5px}
+  .bubble.me{align-self:flex-end;background:var(--coral);color:#2a1712;border-bottom-right-radius:5px}
+  .bubble.sys{align-self:center;background:transparent;color:var(--muted);font-size:12.5px;text-align:center;max-width:92%;line-height:1.6}
+  .interim{align-self:flex-end;color:var(--coral);font-size:14px;opacity:.7;font-style:italic;padding:2px 14px;min-height:18px}
+
+  .callbar{padding:14px 22px calc(18px + env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:center;gap:10px;border-top:1px solid var(--line);background:linear-gradient(0deg,rgba(0,0,0,.15),transparent)}
+  .hint{font-size:12.5px;color:var(--muted);height:16px;text-align:center}
+  .controls{display:flex;align-items:center;gap:22px}
+  .mic{width:72px;height:72px;border-radius:50%;border:none;cursor:pointer;background:var(--coral);color:#2a1712;font-size:28px;display:grid;place-items:center;transition:transform .12s ease,background .2s ease;box-shadow:0 8px 30px -8px var(--coral)}
+  .mic:active{transform:scale(.94)}
+  .mic.listening{background:#fff;animation:mic-glow 1.1s ease-out infinite}
+  @keyframes mic-glow{0%{box-shadow:0 0 0 0 rgba(232,131,107,.5)}100%{box-shadow:0 0 0 22px rgba(232,131,107,0)}}
+  .mic:disabled{opacity:.4;cursor:default;box-shadow:none}
+  .end{width:56px;height:56px;border-radius:50%;border:none;cursor:pointer;background:var(--red);color:#fff;font-size:22px;display:grid;place-items:center;box-shadow:0 6px 20px -8px var(--red)}
+  .end:active{transform:scale(.94)}
+  .mini{width:56px;height:56px;border-radius:50%;background:var(--night-2);color:var(--muted);border:1px solid var(--line);cursor:pointer;font-size:20px;display:grid;place-items:center}
+  .mini:hover{color:var(--paper)}
+  .ctl-label{font-size:10.5px;color:var(--muted);text-align:center;margin-top:3px}
+  .ctl{display:flex;flex-direction:column;align-items:center}
+
+  /* overlays */
+  .overlay{position:absolute;inset:0;z-index:20;background:rgba(16,17,30,.96);backdrop-filter:blur(6px);display:flex;flex-direction:column;padding:30px 26px;gap:16px;overflow-y:auto}
+  .overlay.hidden{display:none}
+  .overlay.center{justify-content:center}
+  .overlay h2{font-size:22px;font-weight:700;font-family:var(--font-jp)}
+  .overlay h2 span{font-family:var(--font-ui);font-size:14px;color:var(--muted);display:block;margin-top:4px;font-weight:400}
+  .lvl{display:flex;gap:8px}
+  .lvl button{flex:1;padding:11px;border-radius:10px;font-size:13px;cursor:pointer;background:var(--night-2);border:1px solid var(--line);color:var(--muted)}
+  .lvl button.on{background:var(--jade);color:#0f1a17;border-color:var(--jade);font-weight:700}
+  .note{font-size:12.5px;color:var(--muted);line-height:1.7;background:var(--night-2);padding:14px 16px;border-radius:12px;border:1px solid var(--line)}
+  .note b{color:var(--paper)}
+  .primary{background:var(--coral);color:#2a1712;border:none;padding:15px;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer}
+  .primary:active{transform:scale(.99)}
+  .ghost{background:transparent;color:var(--muted);border:1px solid var(--line);padding:13px;border-radius:12px;font-size:14px;cursor:pointer}
+  .ghost:hover{color:var(--paper)}
+  .foot{font-size:11px;color:var(--muted);text-align:center;line-height:1.6}
+
+  /* feedback report */
+  .fb-title{font-size:20px;font-weight:700}
+  .fb-title span{display:block;font-size:13px;color:var(--muted);font-weight:400;margin-top:3px}
+  .fb-card{background:var(--night-2);border:1px solid var(--line);border-radius:14px;padding:16px 16px;font-size:14px;line-height:1.7;white-space:pre-wrap;word-break:break-word}
+  .fb-card .jp{font-family:var(--font-jp)}
+  .fb-loading{color:var(--muted);font-size:14px;text-align:center;padding:20px}
+  .spinner{width:26px;height:26px;border:3px solid var(--line);border-top-color:var(--jade);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ===== 시작 화면 ===== -->
+  <div class="overlay center" id="startOverlay">
+    <h2>もしもし<span>일본어 통화 연습</span></h2>
+    <div class="lvl" id="lvlPick">
+      <button data-lvl="beginner" class="on">초급 N5-N4</button>
+      <button data-lvl="inter">중급 N3-N2</button>
+      <button data-lvl="adv">고급 N1</button>
+    </div>
+    <div class="note">
+      API 키 없이 바로 시작합니다.<br>
+      마이크로 <b>일본어</b>를 말하면 선생님이 답하고, 막히면 <b>한국어로 말하거나 ⌨ 버튼</b>으로 입력해도 돼요.<br>
+      통화를 끊으면 <b>대화 피드백</b>을 정리해 드립니다.
+    </div>
+    <button class="primary" id="startBtn">📞 통화 시작</button>
+    <div class="foot">Chrome / Safari에서 가장 잘 동작합니다.</div>
+  </div>
+
+  <!-- ===== 피드백 화면 ===== -->
+  <div class="overlay" id="fbOverlay" style="display:none">
+    <div class="fb-title">통화 피드백<span id="fbMeta"></span></div>
+    <div id="fbBody">
+      <div class="fb-loading"><div class="spinner"></div>대화를 분석하고 있어요...</div>
+    </div>
+    <button class="primary" id="fbAgainBtn">📞 다시 통화하기</button>
+    <button class="ghost" id="fbCloseBtn">닫기</button>
+  </div>
+
+  <!-- ===== 통화 화면 ===== -->
+  <header>
+    <div class="who">
+      <div class="avatar" id="avatar">先</div>
+      <div>
+        <h1>せんせい</h1>
+        <div class="sub" id="statusText">연결 준비됨</div>
+      </div>
+    </div>
+    <div class="timer" id="timer">00:00</div>
+  </header>
+
+  <div class="transcript" id="transcript"></div>
+  <div class="interim" id="interim"></div>
+
+  <div class="callbar">
+    <div class="hint" id="hint">마이크를 누르고 일본어로 말해보세요</div>
+    <div class="controls">
+      <div class="ctl">
+        <button class="mini" id="textBtn">⌨</button>
+        <div class="ctl-label">텍스트</div>
+      </div>
+      <div class="ctl">
+        <button class="mic" id="micBtn">🎙</button>
+        <div class="ctl-label">말하기</div>
+      </div>
+      <div class="ctl">
+        <button class="end" id="endBtn">📵</button>
+        <div class="ctl-label">끊기</div>
+      </div>
+    </div>
+    <div class="ctl" style="margin-top:2px">
+      <button class="mini" id="repeatBtn" style="width:auto;height:auto;border-radius:12px;padding:7px 14px;font-size:13px">🔊 다시 듣기</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* =====================================================================
+   もしもし — 일본어 통화 연습 (Puter.js, 무료)
+   STT: Web Speech API (ja-JP 우선)  / TTS: SpeechSynthesis
+   LLM: puter.ai.chat()  (키 불필요)
+   추가: 통화 종료 시 대화 전체 피드백 리포트 생성
+   ===================================================================== */
+
+const state = {
+  level: localStorage.getItem('level') || 'beginner',
+  history: [],          // {role:'user'|'assistant', content}
+  lastAiText: '',
+  listening: false,
+  jpVoice: null,
+  busy: false,
+  startTime: 0,
+  timerId: null,
+};
+
+const MODEL = 'gemini-2.5-flash';
+
+function systemPrompt(level){
+  const common = `
+당신은 나의 일본어 회화 통화 파트너 "선생님(せんせい)"입니다. 전화 통화하듯 자연스럽게 대화합니다.
+
+[대화 규칙]
+- 한 번에 1~2문장만 짧게 말하세요. 절대 길게 말하지 마세요. (통화이므로)
+- 항상 대화가 이어지도록 나에게 간단한 질문을 되물어 주세요.
+- 천천히, 명확하게 말하는 톤으로 응답하세요.
+
+[한국어 혼용 규칙]
+- 내가 일본어로 말하다 막혀서 한국어를 섞거나 한국어로 말해도 절대 대화를 멈추지 마세요.
+- 한국어 부분의 뜻을 이해하고, 그것을 일본어로 어떻게 말하는지 짧게 알려준 뒤 자연스럽게 대화를 이어가세요.
+
+[교정 규칙]
+- 사소한 실수는 무시하고 대화를 이어가세요.
+- 의미가 안 통하거나 크게 틀린 것만 짧게 짚고 바로 이어가세요. 길게 설명 금지.
+
+[출력 형식 — 반드시]
+JP: <일본어 대사>
+KO: <한국어 번역>
+- JP 줄엔 일본어만, KO 줄엔 한국어만. 다른 말머리 금지.
+- 교정/힌트는 KO 줄 안에 괄호로 짧게.
+`;
+  const byLevel = {
+    beginner:`[나의 수준] 완전 초급 (N5~N4). 아주 쉽고 짧은 기본 문장만. 어려운 어휘·관용구 금지.`,
+    inter:`[나의 수준] 중급 (N3~N2). 일상 회화 수준의 자연스러운 표현.`,
+    adv:`[나의 수준] 고급 (N1). 원어민 수준의 자연스러운 표현과 속도.`,
+  };
+  return common+'\n'+(byLevel[level]||byLevel.beginner);
+}
+
+// 피드백 생성용 프롬프트
+function feedbackPrompt(level){
+  return `
+당신은 일본어 회화 선생님입니다. 아래는 학습자(수준: ${level})와의 방금 전화 통화 대화 기록입니다.
+이 대화를 바탕으로 학습자를 위한 피드백을 작성하세요. 반드시 아래 형식과 순서를 지키고, 한국어로 설명하되 일본어 예문은 일본어로 쓰세요.
+
+형식(각 항목 제목 그대로 사용, 마크다운 기호 쓰지 말 것):
+
+■ 잘한 점
+- (칭찬 1~2가지, 구체적으로)
+
+■ 고치면 좋은 점
+- (학습자가 틀렸거나 어색했던 표현 1~3개. "❌ 학습자가 말한 것 → ⭕ 자연스러운 표현" 형식으로. 각 줄에 일본어와 한국어 뜻 함께)
+
+■ 오늘 나온 표현
+- (대화에 등장한 유용한 단어/표현 3~5개. 일본어 — 한국어 뜻, 간단히)
+
+■ 다음 연습 제안
+- (한 문장으로 다음에 연습하면 좋을 주제나 표현)
+
+너무 길지 않게, 초급 학습자가 부담 없이 읽을 분량으로 작성하세요. 격려하는 따뜻한 톤으로.
+`;
+}
+
+const $ = s => document.querySelector(s);
+const startOverlay=$('#startOverlay'), fbOverlay=$('#fbOverlay');
+const transcript=$('#transcript'), interimEl=$('#interim');
+const micBtn=$('#micBtn'), avatar=$('#avatar'), statusText=$('#statusText'), hint=$('#hint'), timerEl=$('#timer');
+
+// ---- 레벨 ----
+document.querySelectorAll('#lvlPick button').forEach(b=>{
+  b.classList.toggle('on', b.dataset.lvl===state.level);
+  b.onclick=()=>{document.querySelectorAll('#lvlPick button').forEach(x=>x.classList.remove('on'));b.classList.add('on');state.level=b.dataset.lvl;};
+});
+
+$('#startBtn').onclick=()=>{ localStorage.setItem('level',state.level); beginCall(); };
+$('#fbAgainBtn').onclick=()=>{ fbOverlay.style.display='none'; beginCall(); };
+$('#fbCloseBtn').onclick=()=>{ fbOverlay.style.display='none'; startOverlay.classList.remove('hidden'); };
+
+// ---- 통화 시작 ----
+function beginCall(){
+  // 상태 초기화
+  state.history=[]; state.lastAiText=''; state.busy=false;
+  transcript.innerHTML='';
+  startOverlay.classList.add('hidden');
+  fbOverlay.style.display='none';
+  startTimer();
+  startConversation();
+}
+
+// ---- 타이머 ----
+function startTimer(){
+  state.startTime=Date.now();
+  clearInterval(state.timerId);
+  state.timerId=setInterval(()=>{
+    const s=Math.floor((Date.now()-state.startTime)/1000);
+    const m=String(Math.floor(s/60)).padStart(2,'0');
+    const ss=String(s%60).padStart(2,'0');
+    timerEl.textContent=`${m}:${ss}`;
+  },500);
+}
+function stopTimer(){ clearInterval(state.timerId); }
+
+// ---- Puter LLM ----
+async function askAI(userText){
+  const messages=[
+    {role:'system',content:systemPrompt(state.level)},
+    ...state.history.map(h=>({role:h.role,content:h.content})),
+    {role:'user',content:userText}
+  ];
+  const resp=await puter.ai.chat(messages,{model:MODEL});
+  return extractText(resp).trim();
+}
+function extractText(resp){
+  if(typeof resp==='string') return resp;
+  if(resp?.message?.content){
+    const c=resp.message.content;
+    if(typeof c==='string') return c;
+    if(Array.isArray(c)) return c.map(p=>p.text||'').join('');
+  }
+  if(resp?.text) return resp.text;
+  return String(resp??'');
+}
+
+function parseReply(raw){
+  let jp='',ko='';
+  raw.split('\n').forEach(line=>{
+    const l=line.trim();
+    if(/^JP[:：]/i.test(l)) jp=l.replace(/^JP[:：]/i,'').trim();
+    else if(/^KO[:：]/i.test(l)) ko=l.replace(/^KO[:：]/i,'').trim();
+  });
+  if(!jp&&!ko) jp=raw;
+  return {jp,ko};
+}
+
+// ---- 대화 시작 ----
+async function startConversation(){
+  loadJpVoice();
+  addSys('통화가 연결되었습니다. 마이크를 누르고 일본어로 말해보세요. 막히면 한국어로 말하거나 ⌨ 버튼을 쓰세요.');
+  setStatus('선생님이 인사 중...');
+  try{
+    const raw=await askAI('(통화를 시작합니다. 일본어로 인사하고 오늘 이야기할 가벼운 주제를 하나 제안해줘.)');
+    state.history.push({role:'user',content:'(start)'});
+    state.history.push({role:'assistant',content:raw});
+    renderAi(raw);
+  }catch(e){ addSys('⚠ '+(e.message||'연결 오류. 새로고침 후 다시 시도해주세요.')); }
+  setStatus('통화 중');
+}
+
+// ---- 렌더 ----
+function addSys(t){const d=document.createElement('div');d.className='bubble sys';d.textContent=t;transcript.appendChild(d);scrollDown();}
+function addMe(t){const d=document.createElement('div');d.className='bubble me';d.innerHTML=`<span class="jp">${esc(t)}</span>`;transcript.appendChild(d);scrollDown();}
+function renderAi(raw){
+  const {jp,ko}=parseReply(raw);
+  const d=document.createElement('div');d.className='bubble ai';
+  d.innerHTML=`<span class="jp">${esc(jp)}</span>`+(ko?`<br><span style="color:var(--muted);font-size:13px">${esc(ko)}</span>`:'');
+  transcript.appendChild(d);scrollDown();
+  state.lastAiText=jp; speak(jp);
+}
+function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function scrollDown(){transcript.scrollTop=transcript.scrollHeight;}
+function setStatus(t){statusText.textContent=t;}
+
+// ---- TTS ----
+function loadJpVoice(){
+  const pick=()=>{const vs=speechSynthesis.getVoices();state.jpVoice=vs.find(v=>v.lang==='ja-JP')||vs.find(v=>v.lang.startsWith('ja'))||null;};
+  pick();speechSynthesis.onvoiceschanged=pick;
+}
+function speak(text){
+  if(!text) return;
+  speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text);
+  u.lang='ja-JP'; if(state.jpVoice)u.voice=state.jpVoice;
+  u.rate=state.level==='beginner'?0.85:(state.level==='inter'?0.95:1.0);
+  u.onstart=()=>avatar.classList.add('speaking');
+  u.onend=()=>avatar.classList.remove('speaking');
+  speechSynthesis.speak(u);
+}
+$('#repeatBtn').onclick=()=>speak(state.lastAiText);
+
+// ---- STT ----
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+let recog=null;
+if(SR){
+  recog=new SR(); recog.lang='ja-JP'; recog.interimResults=true; recog.continuous=false;
+  recog.onresult=(e)=>{
+    let interim='',final='';
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      const t=e.results[i][0].transcript;
+      if(e.results[i].isFinal) final+=t; else interim+=t;
+    }
+    interimEl.textContent=interim;
+    if(final){interimEl.textContent='';handleUser(final.trim());}
+  };
+  recog.onerror=(e)=>{stopListening();
+    if(e.error==='not-allowed')addSys('⚠ 마이크 권한이 필요합니다. 브라우저 설정에서 허용해주세요.');
+    else if(e.error==='no-speech')hint.textContent='소리가 안 들렸어요. 다시 눌러 말해보세요.';
+  };
+  recog.onend=()=>{if(state.listening)stopListening();};
+}else{ hint.textContent='이 브라우저는 음성 인식을 지원하지 않아요. ⌨ 텍스트 입력을 이용하세요.'; }
+
+function startListening(){
+  if(!recog||state.busy)return;
+  speechSynthesis.cancel();
+  try{recog.start();}catch(e){return;}
+  state.listening=true;micBtn.classList.add('listening');
+  hint.textContent='듣고 있어요... 다시 누르면 중지';
+}
+function stopListening(){
+  state.listening=false;micBtn.classList.remove('listening');
+  hint.textContent='마이크를 누르고 일본어로 말해보세요';
+  try{recog&&recog.stop();}catch(e){}
+}
+micBtn.onclick=()=>{state.listening?stopListening():startListening();};
+
+$('#textBtn').onclick=()=>{
+  const t=prompt('입력 (일본어·한국어 섞어도 OK):');
+  if(t&&t.trim())handleUser(t.trim());
+};
+
+// ---- 사용자 발화 처리 ----
+async function handleUser(text){
+  stopListening();
+  if(state.busy)return;
+  state.busy=true;micBtn.disabled=true;
+  addMe(text);
+  state.history.push({role:'user',content:text});
+  setStatus('선생님이 생각 중...');hint.textContent='';
+  try{
+    const raw=await askAI(text);
+    state.history.push({role:'assistant',content:raw});
+    renderAi(raw);
+  }catch(e){ addSys('⚠ '+(e.message||'응답 오류. 다시 시도해주세요.')); }
+  setStatus('통화 중');hint.textContent='마이크를 누르고 일본어로 말해보세요';
+  state.busy=false;micBtn.disabled=false;
+  if(state.history.length>40)state.history=state.history.slice(-40);
+}
+
+// ---- 통화 끊기 → 피드백 ----
+$('#endBtn').onclick=endCall;
+async function endCall(){
+  stopListening();
+  speechSynthesis.cancel();
+  stopTimer();
+
+  // 실제 대화가 거의 없으면 피드백 생략
+  const userTurns=state.history.filter(h=>h.role==='user'&&h.content!=='(start)').length;
+  if(userTurns===0){
+    startOverlay.classList.remove('hidden');
+    return;
+  }
+
+  // 피드백 화면 표시 (로딩)
+  fbOverlay.style.display='flex';
+  $('#fbMeta').textContent=`통화 시간 ${timerEl.textContent} · ${userTurns}번 대화`;
+  $('#fbBody').innerHTML='<div class="fb-loading"><div class="spinner"></div>대화를 분석하고 있어요...</div>';
+
+  // 대화 기록을 읽기 쉬운 텍스트로 변환
+  const convo=state.history
+    .filter(h=>h.content!=='(start)')
+    .map(h=>{
+      if(h.role==='user') return '학습자: '+h.content;
+      const {jp,ko}=parseReply(h.content);
+      return '선생님: '+jp+(ko?` (${ko})`:'');
+    }).join('\n');
+
+  try{
+    const messages=[
+      {role:'system',content:feedbackPrompt(state.level)},
+      {role:'user',content:'다음은 대화 기록입니다:\n\n'+convo}
+    ];
+    const resp=await puter.ai.chat(messages,{model:MODEL});
+    const fb=extractText(resp).trim();
+    renderFeedback(fb);
+  }catch(e){
+    $('#fbBody').innerHTML=`<div class="fb-card">⚠ 피드백 생성에 실패했어요.<br>${esc(e.message||'')}<br><br>대화는 잘 하셨어요. 다시 시도해보세요.</div>`;
+  }
+}
+
+function renderFeedback(text){
+  // 일본어가 섞여 있으니 jp 폰트도 적용되게 통째로 표시
+  $('#fbBody').innerHTML=`<div class="fb-card jp">${esc(text)}</div>`;
+}
+</script>
+</body>
+</html>
