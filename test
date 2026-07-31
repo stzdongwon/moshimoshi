@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>백엔드 테스트</title>
+<style>
+  body{font-family:system-ui,'Apple SD Gothic Neo',sans-serif;max-width:600px;margin:20px auto;padding:0 16px;line-height:1.6;background:#1a1c2e;color:#f4f1ea}
+  h2{font-size:18px}
+  .card{background:#242741;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:16px;margin:14px 0}
+  button{background:#e8836b;color:#2a1712;border:none;padding:12px 18px;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer}
+  button:disabled{opacity:.5}
+  pre{background:#12131f;padding:12px;border-radius:8px;white-space:pre-wrap;word-break:break-word;font-size:13px;color:#9fd0c4;margin-top:10px}
+  .ok{color:#7fb0a3}.err{color:#e8836b}
+  input{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:#12131f;color:#f4f1ea;margin-bottom:10px}
+  small{color:#8a8ca3}
+</style>
+</head>
+<body>
+  <h2>もしもし 백엔드 테스트</h2>
+
+  <div class="card">
+    <label>백엔드 주소</label>
+    <input id="backend" value="https://moshimoshi-backend.hodorigogogo.workers.dev">
+    <small>본인 Worker 주소가 맞는지 확인</small>
+  </div>
+
+  <div class="card">
+    <h2>1. Gemini 대화 테스트 (/chat)</h2>
+    <p><small>AQ. 키가 백엔드에서 작동하는지 확인합니다.</small></p>
+    <button id="chatBtn">일본어로 인사 요청</button>
+    <pre id="chatOut">결과가 여기 표시됩니다.</pre>
+  </div>
+
+  <div class="card">
+    <h2>2. Whisper 음성인식 테스트 (/stt)</h2>
+    <p><small>녹음 버튼 → 일본어로 말하기 → 정지 → 텍스트 변환</small></p>
+    <button id="recBtn">🎙 녹음 시작</button>
+    <pre id="sttOut">결과가 여기 표시됩니다.</pre>
+  </div>
+
+<script>
+const $ = s => document.querySelector(s);
+const backend = () => $('#backend').value.replace(/\/$/,'');
+
+// ---- 1) Gemini chat 테스트 ----
+$('#chatBtn').onclick = async () => {
+  const out = $('#chatOut');
+  out.textContent = '요청 중...';
+  out.className = '';
+  try {
+    const r = await fetch(backend() + '/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [
+          { role: 'system', content: '너는 일본어 선생님이다. 짧게 일본어로 인사해줘.' },
+          { role: 'user', content: '(인사 시작)' }
+        ]
+      })
+    });
+    const data = await r.json();
+    if (r.ok && data.text) {
+      out.className = 'ok';
+      out.textContent = '✅ Gemini 작동!\n\n' + data.text;
+    } else {
+      out.className = 'err';
+      out.textContent = '❌ 실패\n\n' + JSON.stringify(data, null, 2);
+    }
+  } catch (e) {
+    out.className = 'err';
+    out.textContent = '❌ 연결 오류\n\n' + e;
+  }
+};
+
+// ---- 2) Whisper STT 테스트 ----
+let mediaRecorder = null, chunks = [], recording = false;
+
+$('#recBtn').onclick = async () => {
+  const out = $('#sttOut');
+  if (!recording) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+      chunks = [];
+      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(chunks, { type: 'audio/webm' });
+        out.textContent = '음성 변환 중...';
+        out.className = '';
+        try {
+          const form = new FormData();
+          form.append('file', blob, 'audio.webm');
+          const r = await fetch(backend() + '/stt', { method: 'POST', body: form });
+          const data = await r.json();
+          if (r.ok && data.text !== undefined) {
+            out.className = 'ok';
+            out.textContent = '✅ Whisper 작동!\n\n인식된 일본어:\n' + data.text;
+          } else {
+            out.className = 'err';
+            out.textContent = '❌ 실패\n\n' + JSON.stringify(data, null, 2);
+          }
+        } catch (e) {
+          out.className = 'err';
+          out.textContent = '❌ 연결 오류\n\n' + e;
+        }
+      };
+      mediaRecorder.start();
+      recording = true;
+      $('#recBtn').textContent = '⏹ 정지 (말한 뒤 누르기)';
+      out.textContent = '녹음 중... 일본어로 말한 뒤 정지를 누르세요.';
+    } catch (e) {
+      out.className = 'err';
+      out.textContent = '❌ 마이크 오류: ' + e;
+    }
+  } else {
+    mediaRecorder.stop();
+    recording = false;
+    $('#recBtn').textContent = '🎙 녹음 시작';
+  }
+};
+</script>
+</body>
+</html>
