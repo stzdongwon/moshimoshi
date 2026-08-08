@@ -80,7 +80,7 @@
   .hist-item .h-date{color:var(--muted);font-size:12px}
   .hist-empty{color:var(--muted);font-size:13px;text-align:center;padding:20px}
 
-  /* 🆕 단어장 및 퀴즈 컴포넌트 추가 스타일 */
+  /* 단어장 및 퀴즈 컴포넌트 추가 스타일 */
   .badge-ai { background: rgba(127,176,163,0.15); color: var(--jade); padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: normal; margin-left: 6px; vertical-align: middle; }
   .word-row { display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); padding: 12px 14px; border-radius: 10px; margin-bottom: 8px; border: 1px solid var(--line); }
   .word-info .jp-w { font-family: var(--font-jp); font-size: 16px; font-weight: bold; color: var(--paper); }
@@ -88,13 +88,13 @@
   .btn-word-add { background: var(--jade); color: #0f1a17; border: none; padding: 6px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; }
   .btn-word-add.added { background: var(--night-2); color: var(--muted); border: 1px solid var(--line); cursor: not-allowed; }
   
-  .vocab-list-container { display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow-y: auto; margin: 10px 0; }
-  .vocab-item { display: flex; justify-content: space-between; align-items: center; background: var(--night-2); padding: 12px; border-radius: 10px; border: 1px solid var(--line); }
+  .vocab-list-container { display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow-y: auto; margin: 10px 0; width: 100%; }
+  .vocab-item { display: flex; justify-content: space-between; align-items: center; background: var(--night-2); padding: 12px; border-radius: 10px; border: 1px solid var(--line); width: 100%; }
   .vocab-del { background: transparent; color: var(--red); border: none; cursor: pointer; font-size: 14px; padding: 4px; }
   
-  .quiz-area { text-align: center; margin: 20px 0; }
+  .quiz-area { text-align: center; margin: 20px 0; width: 100%; }
   .quiz-q { font-family: var(--font-jp); font-size: 28px; font-weight: 700; color: var(--gold); margin-bottom: 25px; min-height: 42px; }
-  .quiz-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+  .quiz-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; width: 100%; }
   .quiz-opt-btn { background: var(--night-2); border: 1px solid var(--line); color: var(--paper); padding: 16px 10px; border-radius: 12px; font-size: 14px; cursor: pointer; transition: all 0.15s ease; }
   .quiz-opt-btn:active { transform: scale(0.97); }
   .quiz-status { font-size: 13px; color: var(--muted); min-height: 20px; }
@@ -133,4 +133,3 @@
   </div>
 
   <!-- 지난 통화 목록 -->
-  <div class="overlay" id="histOverlay" style="display:none">
