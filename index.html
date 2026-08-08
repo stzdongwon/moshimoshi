@@ -78,54 +78,6 @@
   .hist-item:hover{border-color:var(--jade)}
   .hist-item .h-date{color:var(--muted);font-size:12px}
   .hist-empty{color:var(--muted);font-size:13px;text-align:center;padding:20px}
-
-  /* 단어장 */
-  .vocab-search{display:flex;gap:8px}
-  .vocab-search input{flex:1;background:var(--night-2);color:var(--paper);border:1px solid var(--line);border-radius:10px;padding:11px 12px;outline:none}
-  .vocab-search input:focus{border-color:var(--jade)}
-  .vocab-item{background:var(--night-2);border:1px solid var(--line);border-radius:12px;padding:13px 14px;margin-bottom:9px}
-  .vocab-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
-  .vocab-kanji{font-family:var(--font-jp);font-size:18px;font-weight:700}
-  .vocab-hira{font-family:var(--font-jp);color:var(--jade);font-size:13px;margin-top:3px}
-  .vocab-meaning{color:var(--muted);font-size:13px;margin-top:5px}
-  .vocab-actions{display:flex;gap:6px}
-  .vocab-actions button{background:transparent;color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:6px 8px;cursor:pointer}
-  .vocab-actions button:hover{color:var(--paper);border-color:var(--jade)}
-  .vocab-empty{color:var(--muted);font-size:13px;text-align:center;padding:24px 10px}
-  .translation{margin-top:8px;padding-top:8px;border-top:1px solid rgba(0,0,0,.12)}
-  .translation .label{font-size:10px;opacity:.65;letter-spacing:.04em}
-  .translation .kanji{font-family:var(--font-jp);font-size:15px;font-weight:700}
-  .translation .hira{font-family:var(--font-jp);font-size:13px;opacity:.8}
-  .bubble.me .translation{border-top-color:rgba(42,23,18,.16)}
-  .vocab-recommend{margin-top:12px}
-  .recommend-item{display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--night-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:7px}
-  .recommend-item .r-word{font-family:var(--font-jp)}
-  .recommend-item .r-meaning{font-size:12px;color:var(--muted)}
-  .small-primary{background:var(--coral);color:#2a1712;border:none;padding:7px 10px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer}
-
-
-  /* 4지선다 퀴즈 */
-  .quiz-summary{display:flex;gap:8px;margin:12px 0}
-  .quiz-stat{flex:1;background:var(--night-2);border:1px solid var(--line);border-radius:10px;padding:10px;text-align:center}
-  .quiz-stat strong{display:block;font-size:20px;color:var(--jade)}
-  .quiz-stat span{font-size:11px;color:var(--muted)}
-  .quiz-card{background:var(--night-2);border:1px solid var(--line);border-radius:14px;padding:18px;margin-top:12px}
-  .quiz-progress{font-size:11px;color:var(--muted);margin-bottom:10px}
-  .quiz-word{font-family:var(--font-jp);font-size:28px;font-weight:700;text-align:center;margin:12px 0 2px}
-  .quiz-hira{text-align:center;font-family:var(--font-jp);color:var(--jade);font-size:14px}
-  .quiz-question{text-align:center;font-size:14px;margin:16px 0}
-  .quiz-options{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-  .quiz-option{background:var(--night);border:1px solid var(--line);color:var(--paper);border-radius:10px;padding:12px 10px;text-align:left;cursor:pointer;font-size:13px}
-  .quiz-option:hover{border-color:var(--jade)}
-  .quiz-option.correct{border-color:#68b78a;background:rgba(104,183,138,.12)}
-  .quiz-option.wrong{border-color:#d66a5c;background:rgba(214,106,92,.12)}
-  .quiz-feedback{margin-top:12px;padding:11px;border-radius:10px;background:var(--paper);color:var(--ink);font-size:13px;line-height:1.5}
-  .quiz-next{margin-top:10px;width:100%}
-  .quiz-result{text-align:center;padding:24px 8px}
-  .quiz-score{font-size:34px;font-weight:800;color:var(--jade)}
-  .quiz-result p{color:var(--muted);font-size:13px}
-  @media(max-width:520px){.quiz-options{grid-template-columns:1fr}}
-
 </style>
 </head>
 <body>
@@ -147,7 +99,6 @@
     <button class="primary" id="startBtn">📞 통화 시작</button>
     <button class="ghost" id="histBtn">📋 지난 통화 기록</button>
     <button class="ghost" id="profBtn">🧠 선생님이 기억하는 나</button>
-    <button class="ghost" id="vocabBtn">📚 나의 단어장</button>
     <div class="foot">아이폰은 Chrome 또는 Safari에서 사용하세요.</div>
   </div>
 
@@ -173,27 +124,6 @@
     <div id="fbBody"><div class="fb-loading"><div class="spinner"></div>대화를 분석하고 있어요...</div></div>
     <button class="primary" id="fbAgainBtn">📞 다시 통화하기</button>
     <button class="ghost" id="fbCloseBtn">닫기</button>
-  </div>
-
-
-  <!-- 단어장 -->
-  <div class="overlay" id="vocabOverlay" style="display:none">
-    <div class="fb-title">📚 나의 단어장<span>통화에서 배운 단어와 표현을 저장해요</span></div>
-    <div class="vocab-search">
-      <input id="vocabSearch" type="search" placeholder="일본어·히라가나·한국어로 검색">
-    </div>
-    <div class="quiz-summary" id="vocabStats"></div>
-<button class="primary" id="startQuizBtn" style="width:100%;margin-bottom:10px">📝 4지선다 퀴즈 시작</button>
-<div id="vocabList"></div>
-    <button class="ghost" id="vocabCloseBtn">닫기</button>
-  </div>
-
-
-  <!-- 4지선다 퀴즈 -->
-  <div class="overlay" id="quizOverlay" style="display:none">
-    <div class="fb-title">📝 4지선다 퀴즈<span>단어장의 단어를 4지선다로 복습해요</span></div>
-    <div id="quizContent"></div>
-    <button class="ghost" id="quizCloseBtn">닫기</button>
   </div>
 
   <!-- 통화 화면 -->
@@ -247,74 +177,6 @@ let mediaRecorder=null, chunks=[], stream=null;
 function loadProfile(){ try{return localStorage.getItem('profile')||'';}catch(e){return '';} }
 function saveProfile(p){ try{localStorage.setItem('profile',p||'');}catch(e){} }
 
-function loadVocab(){
-  try{return JSON.parse(localStorage.getItem('vocab')||'[]');}
-  catch(e){return [];}
-}
-function saveVocab(list){
-  try{localStorage.setItem('vocab',JSON.stringify(list));}catch(e){}
-}
-state.vocab=loadVocab();
-
-function normalizeVocab(v){
-  return {
-    id:v.id||Date.now()+Math.random(),
-    kanji:(v.kanji||v.word||'').trim(),
-    hiragana:(v.hiragana||v.furigana||'').trim(),
-    meaning:(v.meaning||'').trim(),
-    createdAt:v.createdAt||new Date().toISOString()
-  };
-}
-function addVocabItem(item){
-  const v=normalizeVocab(item);
-  if(!v.kanji && !v.hiragana)return;
-  const exists=state.vocab.some(x=>
-    (x.kanji===v.kanji && x.hiragana===v.hiragana) ||
-    (x.kanji===v.kanji && !v.hiragana)
-  );
-  if(exists)return;
-  state.vocab.unshift(v);
-  saveVocab(state.vocab);
-}
-function removeVocab(id){
-  state.vocab=state.vocab.filter(v=>String(v.id)!==String(id));
-  saveVocab(state.vocab);
-  updateVocabStats();
-  renderVocabList();
-}
-function speakVocab(id){
-  const v=state.vocab.find(x=>String(x.id)===String(id));
-  if(v)speak(v.kanji||v.hiragana);
-}
-function renderVocabList(){
-  const el=$('#vocabList');
-  const q=($('#vocabSearch')?.value||'').trim().toLowerCase();
-  const list=state.vocab.filter(v=>
-    !q ||
-    v.kanji.toLowerCase().includes(q) ||
-    v.hiragana.toLowerCase().includes(q) ||
-    v.meaning.toLowerCase().includes(q)
-  );
-  if(!list.length){
-    el.innerHTML='<div class="vocab-empty">'+(state.vocab.length?'검색 결과가 없어요.':'아직 저장된 단어가 없어요. 통화 후 배운 표현을 추가해 보세요.')+'</div>';
-    return;
-  }
-  el.innerHTML=list.map(v=>`
-    <div class="vocab-item">
-      <div class="vocab-top">
-        <div>
-          <div class="vocab-kanji">${esc(v.kanji)}</div>
-          <div class="vocab-hira">${esc(v.hiragana)}</div>
-          <div class="vocab-meaning">${esc(v.meaning)}</div>
-        </div>
-        <div class="vocab-actions">
-          <button onclick="speakVocab('${String(v.id).replace(/'/g,"\\'")}')">🔊</button>
-          <button onclick="removeVocab('${String(v.id).replace(/'/g,"\\'")}')">삭제</button>
-        </div>
-      </div>
-    </div>`).join('');
-}
-
 function systemPrompt(level){
   const common = `
 당신은 나의 일본어 회화 통화 파트너 "선생님(せんせい)"입니다. 전화 통화하듯 자연스럽게 대화합니다.
@@ -322,12 +184,7 @@ function systemPrompt(level){
 - 한 번에 1~2문장만 짧게. 절대 길게 말하지 마세요.
 - 항상 대화가 이어지도록 나에게 간단한 질문을 되물어 주세요.
 [한국어 혼용]
-- 내가 한국어를 섞거나 한국어로 말하면, 먼저 그 뜻을 자연스러운 일본어로 바꿔 주세요.
-- 한국어를 일본어로 바꿔 보여줄 때는 반드시 다음 2줄을 포함하세요:
-  日本語: <한자/가나를 포함한 자연스러운 일본어>
-  ひらがな: <위 일본어를 전부 히라가나로 읽은 문장>
-- 그 다음 한국어 번역과 짧은 대화를 이어가세요.
-- 내가 일본어로 말하면 이 번역 형식은 생략해도 됩니다.
+- 내가 한국어를 섞거나 한국어로 말해도 멈추지 말고, 그 뜻을 일본어로 어떻게 말하는지 짧게 알려준 뒤 대화를 이어가세요.
 [교정]
 - 사소한 실수는 무시. 크게 틀린 것만 짧게 짚고 바로 이어가세요.
 [출력 형식 — 반드시]
@@ -376,7 +233,6 @@ function feedbackPrompt(level){
 
 ■ 오늘 나온 표현
 - (유용한 단어/표현 3~5개. 일본어 — 한국어 뜻)
-- 각 표현에는 가능한 경우 한자와 히라가나를 함께 표기하세요.
 
 ■ 다음 연습 제안
 - (한 문장)
@@ -385,7 +241,7 @@ function feedbackPrompt(level){
 }
 
 const $=s=>document.querySelector(s);
-const startOverlay=$('#startOverlay'),fbOverlay=$('#fbOverlay'),histOverlay=$('#histOverlay'),vocabOverlay=$('#vocabOverlay');
+const startOverlay=$('#startOverlay'),fbOverlay=$('#fbOverlay'),histOverlay=$('#histOverlay');
 const transcript=$('#transcript'),micBtn=$('#micBtn'),micLabel=$('#micLabel');
 const avatar=$('#avatar'),statusText=$('#statusText'),hint=$('#hint'),timerEl=$('#timer');
 
@@ -400,11 +256,6 @@ $('#fbAgainBtn').onclick=()=>{fbOverlay.style.display='none';beginCall();};
 $('#fbCloseBtn').onclick=()=>{fbOverlay.style.display='none';startOverlay.classList.remove('hidden');};
 $('#histBtn').onclick=showHistory;
 $('#histCloseBtn').onclick=()=>{histOverlay.style.display='none';};
-$('#vocabBtn').onclick=()=>{vocabOverlay.style.display='flex';updateVocabStats();renderVocabList();};
-$('#vocabCloseBtn').onclick=()=>{vocabOverlay.style.display='none';};
-$('#quizCloseBtn').onclick=()=>{quizOverlay.style.display='none';};
-$('#startQuizBtn').onclick=startVocabQuiz;
-$('#vocabSearch').oninput=renderVocabList;
 
 // 프로필(기억) 화면
 const profOverlay=$('#profOverlay');
@@ -453,18 +304,7 @@ async function callSTT(blob){
   return (data.text||'').trim();
 }
 
-function parseReply(raw){
-  let jp='',ko='',hira='';
-  raw.split('\n').forEach(line=>{
-    const l=line.trim();
-    if(/^JP[:：]/i.test(l))jp=l.replace(/^JP[:：]/i,'').trim();
-    else if(/^KO[:：]/i.test(l))ko=l.replace(/^KO[:：]/i,'').trim();
-    else if(/^日本語[:：]/.test(l))jp=l.replace(/^日本語[:：]/,'').trim();
-    else if(/^ひらがな[:：]/.test(l))hira=l.replace(/^ひらがな[:：]/,'').trim();
-  });
-  if(!jp&&!ko)jp=raw;
-  return{jp,ko,hira};
-}
+function parseReply(raw){let jp='',ko='';raw.split('\n').forEach(line=>{const l=line.trim();if(/^JP[:：]/i.test(l))jp=l.replace(/^JP[:：]/i,'').trim();else if(/^KO[:：]/i.test(l))ko=l.replace(/^KO[:：]/i,'').trim();});if(!jp&&!ko)jp=raw;return{jp,ko};}
 
 async function startConversation(){
   loadJpVoice();
@@ -482,72 +322,8 @@ async function startConversation(){
 // 렌더
 function addSys(t){const d=document.createElement('div');d.className='bubble sys';d.textContent=t;transcript.appendChild(d);scrollDown();}
 function addMe(t){const d=document.createElement('div');d.className='bubble me';d.innerHTML=`<span class="jp">${esc(t)}</span>`;transcript.appendChild(d);scrollDown();}
-function renderAi(raw){
-  const {jp,ko,hira}=parseReply(raw);
-  const d=document.createElement('div');d.className='bubble ai';
-  d.innerHTML=`<span class="jp">${esc(jp)}</span>`
-    +(hira?`<div class="translation"><div class="label">ひらがな</div><div class="hira">${esc(hira)}</div></div>`:'')
-    +(ko?`<br><span style="color:var(--muted);font-size:13px">${esc(ko)}</span>`:'');
-  transcript.appendChild(d);scrollDown();state.lastAiText=jp;speak(jp);
-}
+function renderAi(raw){const {jp,ko}=parseReply(raw);const d=document.createElement('div');d.className='bubble ai';d.innerHTML=`<span class="jp">${esc(jp)}</span>`+(ko?`<br><span style="color:var(--muted);font-size:13px">${esc(ko)}</span>`:'');transcript.appendChild(d);scrollDown();state.lastAiText=jp;speak(jp);}
 function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
-
-function hasKorean(text){return /[가-힣]/.test(text);}
-function koreanTranslationPrompt(text){
-  return `학습자가 아래 한국어로 말했습니다.
-「${text}」
-
-자연스러운 일본어 회화로 번역하세요.
-반드시 정확히 다음 4줄만 출력하세요:
-JP: <자연스러운 일본어 문장>
-HIRAGANA: <위 문장을 전부 히라가나로>
-KO: <원래 한국어의 자연스러운 의미>
-VOCAB: <핵심 단어 1~3개를 "일본어|히라가나|한국어" 형식으로 쉼표로 구분>
-
-학습자가 초급이면 너무 어려운 표현을 쓰지 마세요.`;
-}
-function parseTranslation(raw){
-  let jp='',hira='',ko='',vocab=[];
-  raw.split('\\n').forEach(line=>{
-    const l=line.trim();
-    if(/^JP[:：]/i.test(l))jp=l.replace(/^JP[:：]/i,'').trim();
-    else if(/^HIRAGANA[:：]/i.test(l))hira=l.replace(/^HIRAGANA[:：]/i,'').trim();
-    else if(/^KO[:：]/i.test(l))ko=l.replace(/^KO[:：]/i,'').trim();
-    else if(/^VOCAB[:：]/i.test(l)){
-      const s=l.replace(/^VOCAB[:：]/i,'').trim();
-      vocab=s.split(',').map(x=>{
-        const p=x.split('|').map(y=>y.trim());
-        return p.length>=3?{kanji:p[0],hiragana:p[1],meaning:p[2]}:null;
-      }).filter(Boolean);
-    }
-  });
-  return{jp,hira,ko,vocab};
-}
-async function translateKorean(text){
-  const r=await fetch(BACKEND+'/chat',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({
-      messages:[{role:'system',content:'당신은 한국어를 쉬운 자연스러운 일본어로 번역하는 도우미입니다.'},
-                {role:'user',content:koreanTranslationPrompt(text)}],
-      maxTokens:300
-    })
-  });
-  const data=await r.json();
-  if(!r.ok||data.error)throw new Error(data.detail||data.error||'번역 오류');
-  return parseTranslation((data.text||'').trim());
-}
-function renderKoreanTranslation(original,tr){
-  const d=document.createElement('div');d.className='bubble me';
-  d.innerHTML=`<span style="font-size:13px">${esc(original)}</span>`
-    +`<div class="translation"><div class="label">日本語</div><div class="kanji">${esc(tr.jp)}</div>`
-    +(tr.hira?`<div class="hira">${esc(tr.hira)}</div>`:'')
-    +`</div>`;
-  transcript.appendChild(d);scrollDown();
-  tr.vocab.forEach(addVocabItem);
-  saveVocab(state.vocab);
-}
-
 function scrollDown(){transcript.scrollTop=transcript.scrollHeight;}
 function setStatus(t){statusText.textContent=t;}
 
@@ -616,162 +392,6 @@ async function handleUserText(text){
   if(state.history.length>40)state.history=state.history.slice(-40);
 }
 
-
-async function extractVocabFromCall(convo){
-  const prompt=`아래 일본어 회화에서 초급 학습자가 복습하면 좋은 단어/표현을 최대 8개 뽑으세요.
-각 줄을 정확히 "일본어|히라가나|한국어 뜻" 형식으로만 출력하세요.
-불필요한 설명은 하지 마세요.
-
-대화:
-${convo}`;
-  try{
-    const r=await fetch(BACKEND+'/chat',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({messages:[{role:'user',content:prompt}],maxTokens:350})
-    });
-    const data=await r.json();
-    if(!r.ok||data.error)return;
-    (data.text||'').split('\n').forEach(line=>{
-      const p=line.trim().split('|').map(x=>x.trim());
-      if(p.length>=3)addVocabItem({kanji:p[0],hiragana:p[1],meaning:p[2]});
-    });
-    saveVocab(state.vocab);
-  }catch(e){}
-}
-
-
-const quizState={items:[],index:0,score:0,answered:false};
-
-function updateVocabStats(){
-  const el=$('#vocabStats');
-  if(!el)return;
-  const total=state.vocab.length;
-  const mastered=state.vocab.filter(v=>(v.correctCount||0)>=3).length;
-  const due=state.vocab.filter(v=>!v.nextReview||new Date(v.nextReview)<=new Date()).length;
-  el.innerHTML=`
-    <div class="quiz-stat"><strong>${total}</strong><span>전체 단어</span></div>
-    <div class="quiz-stat"><strong>${due}</strong><span>복습할 단어</span></div>
-    <div class="quiz-stat"><strong>${mastered}</strong><span>익숙한 단어</span></div>`;
-}
-
-function shuffleArray(arr){
-  const a=[...arr];
-  for(let i=a.length-1;i>0;i--){
-    const j=Math.floor(Math.random()*(i+1));
-    [a[i],a[j]]=[a[j],a[i]];
-  }
-  return a;
-}
-
-function startVocabQuiz(){
-  if(state.vocab.length<4){
-    alert('퀴즈를 시작하려면 단어가 최소 4개 필요해요.');
-    return;
-  }
-  quizState.items=shuffleArray(state.vocab).slice(0,Math.min(10,state.vocab.length));
-  quizState.index=0;
-  quizState.score=0;
-  quizState.answered=false;
-  $('#vocabOverlay').style.display='none';
-  $('#quizOverlay').style.display='flex';
-  renderQuizQuestion();
-}
-
-function makeQuizOptions(answer){
-  const others=shuffleArray(state.vocab.filter(v=>v.id!==answer.id))
-    .slice(0,3);
-  return shuffleArray([answer,...others]);
-}
-
-function renderQuizQuestion(){
-  const box=$('#quizContent');
-  if(quizState.index>=quizState.items.length){
-    renderQuizResult();
-    return;
-  }
-  const item=quizState.items[quizState.index];
-  quizState.answered=false;
-  const options=makeQuizOptions(item);
-  box.innerHTML=`
-    <div class="quiz-card">
-      <div class="quiz-progress">${quizState.index+1} / ${quizState.items.length}</div>
-      <div class="quiz-word">${esc(item.kanji)}</div>
-      <div class="quiz-hira">${esc(item.hiragana)}</div>
-      <div class="quiz-question">「${esc(item.kanji)}」의 뜻은 무엇인가요?</div>
-      <div class="quiz-options">
-        ${options.map((v,i)=>`
-          <button class="quiz-option" data-id="${String(v.id)}">${String.fromCharCode(65+i)}. ${esc(v.meaning)}</button>
-        `).join('')}
-      </div>
-      <div id="quizFeedback"></div>
-    </div>`;
-  box.querySelectorAll('.quiz-option').forEach(btn=>{
-    btn.onclick=()=>answerQuiz(item,btn,options);
-  });
-}
-
-function answerQuiz(item,clicked,options){
-  if(quizState.answered)return;
-  quizState.answered=true;
-  const selectedId=String(clicked.dataset.id);
-  const correct=selectedId===String(item.id);
-  if(correct){
-    quizState.score++;
-    item.correctCount=(item.correctCount||0)+1;
-    item.reviewCount=(item.reviewCount||0)+1;
-    item.nextReview=nextReviewDate(item,true);
-  }else{
-    item.reviewCount=(item.reviewCount||0)+1;
-    item.nextReview=nextReviewDate(item,false);
-  }
-  saveVocab(state.vocab);
-
-  clicked.classList.add(correct?'correct':'wrong');
-  const buttons=$('#quizContent').querySelectorAll('.quiz-option');
-  buttons.forEach(btn=>{
-    if(String(btn.dataset.id)===String(item.id))btn.classList.add('correct');
-    btn.disabled=true;
-  });
-
-  const feedback=correct
-    ? `좋아요! 「${item.kanji}（${item.hiragana}）」는 ${item.meaning}이라는 뜻이에요.`
-    : `「${item.kanji}（${item.hiragana}）」의 뜻은 「${item.meaning}」이에요. 다음 복습에서 다시 확인해 볼게요.`;
-
-  $('#quizFeedback').innerHTML=`
-    <div class="quiz-feedback">${esc(feedback)}</div>
-    <button class="primary quiz-next">${quizState.index+1===quizState.items.length?'결과 보기':'다음 문제'}</button>`;
-  $('#quizFeedback .quiz-next').onclick=()=>{
-    quizState.index++;
-    renderQuizQuestion();
-  };
-}
-
-function nextReviewDate(item,correct){
-  const now=new Date();
-  const count=item.correctCount||0;
-  let days=correct ? (count>=5?30:count>=3?14:count>=2?7:3) : 0;
-  if(!correct){
-    now.setMinutes(now.getMinutes()+10);
-    return now.toISOString();
-  }
-  now.setDate(now.getDate()+days);
-  return now.toISOString();
-}
-
-function renderQuizResult(){
-  const total=quizState.items.length;
-  const score=quizState.score;
-  const percent=Math.round(score/total*100);
-  const message=percent>=90?'아주 잘했어요! 🎉':percent>=70?'좋아요! 조금만 더 복습해봐요.':'괜찮아요. 틀린 단어를 다시 복습해봐요.';
-  $('#quizContent').innerHTML=`
-    <div class="quiz-result">
-      <div class="quiz-score">${score} / ${total}</div>
-      <p>${percent}% 정답 · ${message}</p>
-      <button class="primary" id="quizAgainBtn">다시 풀기</button>
-    </div>`;
-  $('#quizAgainBtn').onclick=startVocabQuiz;
-}
-
 // ---- 끊기 → 피드백 + 저장 ----
 $('#endBtn').onclick=endCall;
 async function endCall(){
@@ -808,7 +428,6 @@ async function endCall(){
 
   // 프로필(기억) 갱신 — 백그라운드로. 다음 통화 때 선생님이 기억함
   updateProfile(convo);
-  extractVocabFromCall(convo); // 통화에서 복습 단어를 자동 저장
 }
 
 // ---- 저장 / 기록 ----
@@ -842,3 +461,6 @@ function showHistory(){
     list.appendChild(item);
   });
 }
+</script>
+</body>
+</html>
