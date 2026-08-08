@@ -1,125 +1,250 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>백엔드 테스트</title>
-<style>
-  body{font-family:system-ui,'Apple SD Gothic Neo',sans-serif;max-width:600px;margin:20px auto;padding:0 16px;line-height:1.6;background:#1a1c2e;color:#f4f1ea}
-  h2{font-size:18px}
-  .card{background:#242741;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:16px;margin:14px 0}
-  button{background:#e8836b;color:#2a1712;border:none;padding:12px 18px;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer}
-  button:disabled{opacity:.5}
-  pre{background:#12131f;padding:12px;border-radius:8px;white-space:pre-wrap;word-break:break-word;font-size:13px;color:#9fd0c4;margin-top:10px}
-  .ok{color:#7fb0a3}.err{color:#e8836b}
-  input{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:#12131f;color:#f4f1ea;margin-bottom:10px}
-  small{color:#8a8ca3}
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>もしもし - 단어장 & 퀴즈 복습 시스템</title>
+    <style>
+        :root {
+            --primary: #4A90E2;
+            --success: #2ECC71;
+            --danger: #E74C3C;
+            --background: #F5F7FA;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--background);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            width: 100%;
+            max-width: 480px;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            padding: 20px;
+            margin-bottom: 20px;
+            box-sizing: border-box;
+        }
+        h2 { margin-top: 0; color: #333; font-size: 1.2rem; display: flex; align-items: center; gap: 8px; }
+        
+        /* 피드백 영역 단어 카드 */
+        .feedback-word {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #F8FAFC;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            border-left: 4px solid var(--primary);
+        }
+        .word-info .jp { font-size: 1.1rem; font-weight: bold; }
+        .word-info .kr { font-size: 0.85rem; color: #666; margin-left: 8px; }
+        
+        /* 버튼 공통 */
+        button {
+            border: none;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+        .btn-add { background: var(--primary); color: white; }
+        .btn-add.added { background: #CBD5E1; cursor: not-allowed; }
+        .btn-main { background: #333; color: white; width: 100%; padding: 12px; margin-top: 10px; border-radius: 8px; }
+
+        /* 단어장 스타일 */
+        .vocab-list { max-height: 200px; overflow-y: auto; }
+        .vocab-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #EDEDED;
+        }
+        .vocab-item:last-child { border-bottom: none; }
+        .btn-del { background: transparent; color: var(--danger); }
+
+        /* 퀴즈 영역 */
+        .quiz-box { text-align: center; display: none; }
+        .quiz-question { font-size: 1.4rem; font-weight: bold; margin: 20px 0; color: #111; }
+        .options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+        .option-btn { background: #F1F5F9; color: #333; padding: 14px; border-radius: 8px; text-align: center; font-size: 0.95rem; }
+        .option-btn:hover { background: #E2E8F0; }
+        .quiz-score { font-size: 0.9rem; color: #666; margin-top: 10px; }
+        
+        .badge { background: #FFF3CD; color: #856404; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; vertical-align: middle; }
+    </style>
 </head>
 <body>
-  <h2>もしもし 백엔드 테스트</h2>
 
-  <div class="card">
-    <label>백엔드 주소</label>
-    <input id="backend" value="https://moshimoshi-backend.hodorigogogo.workers.dev">
-    <small>본인 Worker 주소가 맞는지 확인</small>
-  </div>
+    <!-- 1. 통화 피드백 추천 단어 (가상 데이터 스탠드) -->
+    <div class="container">
+        <h2>📞 통화 피드백 추천 단어 <span class="badge">AI 생성</span></h2>
+        <div id="ai-recommendations">
+            <!-- 자바스크립트에서 렌더링 -->
+        </div>
+    </div>
 
-  <div class="card">
-    <h2>1. Gemini 대화 테스트 (/chat)</h2>
-    <p><small>AQ. 키가 백엔드에서 작동하는지 확인합니다.</small></p>
-    <button id="chatBtn">일본어로 인사 요청</button>
-    <pre id="chatOut">결과가 여기 표시됩니다.</pre>
-  </div>
+    <!-- 2. 내 단어장 탭 -->
+    <div class="container">
+        <h2>📋 내 복습 단어장 (<span id="vocab-count">0</span>)</h2>
+        <div id="vocab-list" class="vocab-list">
+            <p style="color:#999; text-align:center; font-size:0.9rem;">단어장에 추가된 단어가 없습니다.</p>
+        </div>
+        <button class="btn-main" id="start-quiz-btn" onclick="startQuiz()">⚡ 이 단어들로 퀴즈 풀기</button>
+    </div>
 
-  <div class="card">
-    <h2>2. Whisper 음성인식 테스트 (/stt)</h2>
-    <p><small>녹음 버튼 → 일본어로 말하기 → 정지 → 텍스트 변환</small></p>
-    <button id="recBtn">🎙 녹음 시작</button>
-    <pre id="sttOut">결과가 여기 표시됩니다.</pre>
-  </div>
+    <!-- 3. 실시간 퀴즈 섹션 -->
+    <div class="container id="quiz-container" class="quiz-box" style="display:none;">
+        <h2>🧠 오늘의 복습 퀴즈 <span id="current-round">1/3</span></h2>
+        <div class="quiz-question" id="quiz-question">???</div>
+        <div class="options-grid" id="quiz-options">
+            <!-- 보기 버튼 생성 공간 -->
+        </div>
+        <div class="quiz-score" id="quiz-status">문제를 풀어보세요!</div>
+    </div>
 
-<script>
-const $ = s => document.querySelector(s);
-const backend = () => $('#backend').value.replace(/\/$/,'');
+    <script>
+        // 1. AI 가상 피드백 데이터 (실제 서비스에서는 LLM이 준 결과 JSON을 바인딩하면 됩니다)
+        const aiSuggestedWords = [
+            { id: 1, word: "コンビニ", furigana: "こんびに", meaning: "편의점" },
+            { id: 2, word: "美味しい", furigana: "おいしい", meaning: "맛있다" },
+            { id: 3, word: "友達", furigana: "ともだち", meaning: "친구" },
+            { id: 4, word: "車", furigana: "くるま", meaning: "자동차" }
+        ];
 
-// ---- 1) Gemini chat 테스트 ----
-$('#chatBtn').onclick = async () => {
-  const out = $('#chatOut');
-  out.textContent = '요청 중...';
-  out.className = '';
-  try {
-    const r = await fetch(backend() + '/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages: [
-          { role: 'system', content: '너는 일본어 선생님이다. 짧게 일본어로 인사해줘.' },
-          { role: 'user', content: '(인사 시작)' }
-        ]
-      })
-    });
-    const data = await r.json();
-    if (r.ok && data.text) {
-      out.className = 'ok';
-      out.textContent = '✅ Gemini 작동!\n\n' + data.text;
-    } else {
-      out.className = 'err';
-      out.textContent = '❌ 실패\n\n' + JSON.stringify(data, null, 2);
-    }
-  } catch (e) {
-    out.className = 'err';
-    out.textContent = '❌ 연결 오류\n\n' + e;
-  }
-};
+        // 브라우저 LocalStorage를 활용해 단어장 상태 저장 및 리텐션 유지
+        let myVocab = JSON.parse(localStorage.getItem('myVocab')) || [];
+        let currentQuizData = [];
+        let currentQuestionIndex = 0;
+        let score = 0;
 
-// ---- 2) Whisper STT 테스트 ----
-let mediaRecorder = null, chunks = [], recording = false;
+        // 초기화 실행
+        window.onload = function() {
+            renderRecommendations();
+            renderVocabList();
+        };
 
-$('#recBtn').onclick = async () => {
-  const out = $('#sttOut');
-  if (!recording) {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorder = new MediaRecorder(stream);
-      chunks = [];
-      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
-      mediaRecorder.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop());
-        const blob = new Blob(chunks, { type: 'audio/webm' });
-        out.textContent = '음성 변환 중...';
-        out.className = '';
-        try {
-          const form = new FormData();
-          form.append('file', blob, 'audio.webm');
-          const r = await fetch(backend() + '/stt', { method: 'POST', body: form });
-          const data = await r.json();
-          if (r.ok && data.text !== undefined) {
-            out.className = 'ok';
-            out.textContent = '✅ Whisper 작동!\n\n인식된 일본어:\n' + data.text;
-          } else {
-            out.className = 'err';
-            out.textContent = '❌ 실패\n\n' + JSON.stringify(data, null, 2);
-          }
-        } catch (e) {
-          out.className = 'err';
-          out.textContent = '❌ 연결 오류\n\n' + e;
+        // 피드백 단어 렌더링
+        function renderRecommendations() {
+            const container = document.getElementById('ai-recommendations');
+            container.innerHTML = aiSuggestedWords.map(item => {
+                const isAdded = myVocab.some(v => v.word === item.word);
+                return `
+                    <div class="feedback-word">
+                        <div class="word-info">
+                            <span class="jp">${item.word}</span>
+                            <span class="kr">(${item.meaning})</span>
+                        </div>
+                        <button class="btn-add ${isAdded ? 'added' : ''}" 
+                                onclick="addToVocab(${item.id}, this)" ${isAdded ? 'disabled' : ''}>
+                            ${isAdded ? '추가됨' : '담기 +'}
+                        </button>
+                    </div>
+                `;
+            }).join('');
         }
-      };
-      mediaRecorder.start();
-      recording = true;
-      $('#recBtn').textContent = '⏹ 정지 (말한 뒤 누르기)';
-      out.textContent = '녹음 중... 일본어로 말한 뒤 정지를 누르세요.';
-    } catch (e) {
-      out.className = 'err';
-      out.textContent = '❌ 마이크 오류: ' + e;
-    }
-  } else {
-    mediaRecorder.stop();
-    recording = false;
-    $('#recBtn').textContent = '🎙 녹음 시작';
-  }
-};
-</script>
-</body>
-</html>
+
+        // 단어장 리스트 렌더링
+        function renderVocabList() {
+            const listEl = document.getElementById('vocab-list');
+            document.getElementById('vocab-count').innerText = myVocab.length;
+
+            if(myVocab.length === 0) {
+                listEl.innerHTML = `<p style="color:#999; text-align:center; font-size:0.9rem;">단어장에 추가된 단어가 없습니다.</p>`;
+                return;
+            }
+
+            listEl.innerHTML = myVocab.map((item, idx) => `
+                <div class="vocab-item">
+                    <div><strong>${item.word}</strong> <span style="color:#888; font-size:0.8rem;">[${item.furigana}]</span> - ${item.meaning}</div>
+                    <button class="btn-del" onclick="deleteVocab(${idx})">❌</button>
+                </div>
+            `).join('');
+        }
+
+        // 단어장에 추가
+        function addToVocab(id, btn) {
+            const target = aiSuggestedWords.find(w => w.id === id);
+            if(target && !myVocab.some(v => v.word === target.word)) {
+                myVocab.push(target);
+                localStorage.setItem('myVocab', JSON.stringify(myVocab));
+                renderVocabList();
+                btn.innerText = "추가됨";
+                btn.classList.add('added');
+                btn.disabled = true;
+            }
+        }
+
+        // 단어장에서 삭제
+        function deleteVocab(index) {
+            myVocab.splice(index, 1);
+            localStorage.setItem('myVocab', JSON.stringify(myVocab));
+            renderVocabList();
+            renderRecommendations(); // 담기 버튼 활성화 상태 동기화
+        }
+
+        // 퀴즈 출제 시스템 시작
+        function startQuiz() {
+            if(myVocab.length < 2) {
+                alert("퀴즈를 생성하려면 최소 2개 이상의 단어가 단어장에 등록되어야 합니다!");
+                return;
+            }
+            
+            // 데이터 셔플 및 세팅
+            currentQuizData = [...myVocab].sort(() => 0.5 - Math.random());
+            currentQuestionIndex = 0;
+            score = 0;
+            
+            document.getElementById('quiz-container').style.display = 'block';
+            showQuestion();
+            document.getElementById('quiz-container').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // 문제 노출 함수
+        function showQuestion() {
+            if(currentQuestionIndex >= currentQuizData.length) {
+                // 게임 종료
+                document.getElementById('quiz-question').innerText = "🎉 복습 완료!";
+                document.getElementById('quiz-options').innerHTML = "";
+                document.getElementById('quiz-status').innerHTML = `<strong>결과: ${currentQuizData.length}문제 중 ${score}문제 정답!</strong>`;
+                return;
+            }
+
+            document.getElementById('current-round').innerText = `${currentQuestionIndex + 1}/${currentQuizData.length}`;
+            const currentQuestion = currentQuizData[currentQuestionIndex];
+            document.getElementById('quiz-question').innerText = currentQuestion.word;
+
+            // 4지선다 보기 만들기 (내 단어장에서 랜덤 풀링 오답 조합)
+            let options = [currentQuestion.meaning];
+            let pools = myVocab.filter(v => v.meaning !== currentQuestion.meaning).map(v => v.meaning);
+            pools = pools.sort(() => 0.5 - Math.random());
+            
+            // 최대 오답 3개 결합
+            for(let i=0; i<Math.min(3, pools.length); i++){
+                options.push(pools[i]);
+            }
+            // 무작위 셔플
+            options.sort(() => 0.5 - Math.random());
+
+            // 보기 렌더링
+            const optionsContainer = document.getElementById('quiz-options');
+            optionsContainer.innerHTML = options.map(opt => `
+                <button class="option-btn" onclick="checkAnswer('${opt}', '${currentQuestion.meaning}', this)">${opt}</button>
+            `).join('');
+            document.getElementById('quiz-status').innerText = "알맞은 뜻을 골라보세요.";
+        }
+
+        // 정답 검증 처리
+        function checkAnswer(selected, correct, btn) {
+            const buttons = document.querySelectorAll('.option-btn');
+            buttons.forEach(b => b.disabled = true); // 클릭 연타 방지
+
+            if(selected === correct) {
+                btn.style.background = 'var(--success)';
