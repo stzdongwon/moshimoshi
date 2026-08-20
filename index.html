@@ -88,6 +88,24 @@
   .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700}
   .badge.ok{background:rgba(127,176,163,.2);color:var(--jade)}
   .badge.no{background:rgba(215,106,92,.2);color:var(--red)}
+
+  /* 오늘의 단어 카드 */
+  .word-card{background:var(--night-2);border:1px solid var(--line);border-radius:12px;padding:13px 15px;margin-bottom:10px}
+  .word-jp{font-family:var(--font-jp);font-size:19px;font-weight:700;color:var(--gold)}
+  .word-mean{font-size:14px;margin-top:3px}
+  .word-ex{font-family:var(--font-jp);font-size:13px;color:var(--muted);margin-top:6px;line-height:1.5}
+  .word-ex .exko{font-family:var(--font-ui);display:block;margin-top:2px}
+  .word-speak{margin-top:8px;background:var(--night);color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:5px 12px;font-size:12px;cursor:pointer}
+  .word-speak:hover{color:var(--paper)}
+
+  /* 객관식 선택지 */
+  .opt{display:block;width:100%;text-align:left;background:var(--night-2);border:1px solid var(--line);color:var(--paper);border-radius:10px;padding:13px 15px;margin-bottom:9px;font-family:var(--font-jp);font-size:16px;cursor:pointer;transition:all .15s}
+  .opt:hover{border-color:var(--jade)}
+  .opt.correct{background:rgba(127,176,163,.25);border-color:var(--jade)}
+  .opt.wrong{background:rgba(215,106,92,.25);border-color:var(--red)}
+  .opt:disabled{cursor:default}
+  .q-sentence{font-family:var(--font-jp);font-size:18px;line-height:1.6;text-align:center;padding:18px 8px}
+  .q-explain{background:var(--night-2);border:1px solid var(--line);border-radius:10px;padding:13px;font-size:13.5px;line-height:1.7;margin-top:6px}
 </style>
 </head>
 <body>
@@ -102,15 +120,26 @@
       <button data-lvl="adv">고급 N1</button>
     </div>
     <button class="primary" id="startBtn">📞 통화 시작</button>
-    <button class="primary gold" id="quizBtn">✏️ 오늘의 퀴즈</button>
+    <button class="primary gold" id="wordBtn">📖 오늘의 단어 10개</button>
+    <button class="primary gold" id="quizBtn">✏️ 문법 퀴즈 (과거·부정형)</button>
     <button class="ghost" id="histBtn">📋 지난 통화 기록</button>
     <button class="ghost" id="profBtn">🧠 선생님이 기억하는 나</button>
     <div class="foot">아이폰은 Chrome 또는 Safari에서 사용하세요.<br>AI 음성으로 대화합니다.</div>
   </div>
 
+  <!-- 오늘의 단어 화면 -->
+  <div class="overlay" id="wordOverlay" style="display:none">
+    <div class="fb-title">오늘의 단어<span>친척 대화에 자주 쓰는 단어 10개</span></div>
+    <div id="wordArea">
+      <div class="fb-loading"><div class="spinner"></div>단어를 고르고 있어요...</div>
+    </div>
+    <button class="ghost" id="wordNewBtn">🔄 새 단어 10개</button>
+    <button class="ghost" id="wordCloseBtn">닫기</button>
+  </div>
+
   <!-- 퀴즈 화면 -->
   <div class="overlay" id="quizOverlay" style="display:none">
-    <div class="fb-title">오늘의 퀴즈<span>일본어 문장을 한국어로 해석하세요</span></div>
+    <div class="fb-title">문법 퀴즈<span>과거형·부정형 객관식</span></div>
     <div id="quizArea">
       <div class="fb-loading"><div class="spinner"></div>문제를 만들고 있어요...</div>
     </div>
@@ -214,7 +243,8 @@ function systemPrompt(level){
 [출력 형식 — 반드시]
 JP: <일본어 대사>
 KO: <한국어 번역>
-- JP 줄엔 일본어만, KO 줄엔 한국어만. 다른 말머리 금지. 교정/힌트는 KO 줄 괄호로 짧게.`;
+- JP 줄엔 일본어만, KO 줄엔 한국어만. 다른 말머리 금지. 교정/힌트는 KO 줄 괄호로 짧게.
+- ★후리가나 필수: JP 줄의 모든 한자(漢字) 단어 뒤에 괄호로 읽는 법을 붙이세요. 예: 今日(きょう)は忙(いそが)しかったです。히라가나·가타카나는 그대로. 학습자가 한자를 못 읽으니 반드시 표기.`;
   const byLevel={beginner:`[수준] 완전 초급 N5~N4. 아주 쉽고 짧은 문장. 단, 딱딱하지 않게 친근하게.`,inter:`[수준] 중급 N3~N2. 일상 회화 표현, 구어체 섞기.`,adv:`[수준] 고급 N1. 원어민처럼 자연스럽고 편하게.`};
   const profile=loadProfile();
   const mem=profile?`\n[학습자에 대해 기억하는 정보 — 자연스럽게 대화에 녹이되 심문하듯 나열하지 마세요. 지난 이야기를 친구처럼 이어가세요]\n${profile}`:'';
@@ -239,7 +269,7 @@ function feedbackPrompt(level){
 }
 
 const $=s=>document.querySelector(s);
-const startOverlay=$('#startOverlay'),fbOverlay=$('#fbOverlay'),histOverlay=$('#histOverlay'),profOverlay=$('#profOverlay'),quizOverlay=$('#quizOverlay');
+const startOverlay=$('#startOverlay'),fbOverlay=$('#fbOverlay'),histOverlay=$('#histOverlay'),profOverlay=$('#profOverlay'),quizOverlay=$('#quizOverlay'),wordOverlay=$('#wordOverlay');
 const transcript=$('#transcript'),micBtn=$('#micBtn'),micLabel=$('#micLabel');
 const avatar=$('#avatar'),statusText=$('#statusText'),hint=$('#hint'),timerEl=$('#timer');
 
@@ -305,7 +335,7 @@ function parseReply(raw){let jp='',ko='';raw.split('\n').forEach(line=>{const l=
 function beginCall(){
   state.history=[];state.lastAiText='';state.busy=false;
   transcript.innerHTML='';
-  startOverlay.classList.add('hidden');fbOverlay.style.display='none';histOverlay.style.display='none';profOverlay.style.display='none';quizOverlay.style.display='none';
+  startOverlay.classList.add('hidden');fbOverlay.style.display='none';histOverlay.style.display='none';profOverlay.style.display='none';quizOverlay.style.display='none';wordOverlay.style.display='none';
   startTimer();startConversation();
 }
 function startTimer(){state.startTime=Date.now();clearInterval(state.timerId);state.timerId=setInterval(()=>{const s=Math.floor((Date.now()-state.startTime)/1000);timerEl.textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');},500);}
@@ -326,11 +356,15 @@ async function startConversation(){
 
 function addSys(t){const d=document.createElement('div');d.className='bubble sys';d.textContent=t;transcript.appendChild(d);scrollDown();}
 function addMe(t){const d=document.createElement('div');d.className='bubble me';d.innerHTML=`<span class="jp">${esc(t)}</span>`;transcript.appendChild(d);scrollDown();}
-function renderAi(raw){const {jp,ko}=parseReply(raw);const d=document.createElement('div');d.className='bubble ai';d.innerHTML=`<span class="jp">${esc(jp)}</span>`+(ko?`<br><span style="color:var(--muted);font-size:13px">${esc(ko)}</span>`:'');transcript.appendChild(d);scrollDown();state.lastAiText=jp;speakBackend(jp);}
+// 후리가나 괄호 제거: "今日(きょう)は" → "今日は" (TTS용, 괄호를 읽지 않게)
+function stripFurigana(text){
+  return (text||'').replace(/([一-龯々〆ヶ]+)\(([ぁ-んァ-ヶー]+)\)/g,'$1');
+}
+function renderAi(raw){const {jp,ko}=parseReply(raw);const d=document.createElement('div');d.className='bubble ai';d.innerHTML=`<span class="jp">${esc(jp)}</span>`+(ko?`<br><span style="color:var(--muted);font-size:13px">${esc(ko)}</span>`:'');transcript.appendChild(d);scrollDown();state.lastAiText=jp;speakBackend(stripFurigana(jp));}
 function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
 function scrollDown(){transcript.scrollTop=transcript.scrollHeight;}
 function setStatus(t){statusText.textContent=t;}
-$('#repeatBtn').onclick=()=>speakBackend(state.lastAiText);
+$('#repeatBtn').onclick=()=>speakBackend(stripFurigana(state.lastAiText));
 
 // ---- 녹음 ----
 micBtn.onclick=async()=>{
@@ -413,7 +447,48 @@ ${convo}
 function saveCall(dur,turns,convo,feedback){try{const c=JSON.parse(localStorage.getItem('calls')||'[]');c.unshift({date:new Date().toISOString(),dur,turns,convo,feedback});localStorage.setItem('calls',JSON.stringify(c.slice(0,30)));}catch(e){}}
 function showHistory(){histOverlay.style.display='flex';const list=$('#histList');let calls=[];try{calls=JSON.parse(localStorage.getItem('calls')||'[]');}catch(e){}if(!calls.length){list.innerHTML='<div class="hist-empty">아직 저장된 통화가 없어요.</div>';return;}list.innerHTML='';calls.forEach(c=>{const d=new Date(c.date);const ds=`${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;const it=document.createElement('div');it.className='hist-item';it.innerHTML=`<div class="h-date">${ds} · ${c.dur} · ${c.turns}번 대화</div>`;it.onclick=()=>{histOverlay.style.display='none';fbOverlay.style.display='flex';$('#fbMeta').textContent=`${ds} · ${c.dur}`;$('#fbBody').innerHTML=`<div class="fb-card jp">${esc(c.feedback||'(없음)')}</div>`;};list.appendChild(it);});}
 
-/* ============ 퀴즈 기능 ============ */
+/* ============ 오늘의 단어 ============ */
+$('#wordBtn').onclick=loadWords;
+$('#wordNewBtn').onclick=loadWords;
+$('#wordCloseBtn').onclick=()=>{wordOverlay.style.display='none';};
+
+async function loadWords(){
+  wordOverlay.style.display='flex';
+  $('#wordArea').innerHTML='<div class="fb-loading"><div class="spinner"></div>단어를 고르고 있어요...</div>';
+  const profile=loadProfile();
+  const prompt=`일본어 학습자(수준:${state.level}, 목표: 일본 친척과 일상 대화)를 위한 "오늘의 단어" 10개를 고르세요.
+${profile?'학습자 관심사 참고: '+profile:''}
+가족·근황·감정·일상 등 친척과의 대화에 자주 쓰는 실용 단어 위주로.
+아래 JSON 배열로만 출력. 형식:
+[{"word":"한자 포함 단어","furigana":"히라가나 읽기","meaning":"한국어 뜻","ex":"짧은 예문(한자에 후리가나 괄호 표기: 漢字(かんじ) 형식)","exko":"예문 한국어 해석"}]
+- word에 한자가 있으면 furigana에 전체 읽기를 히라가나로.
+- ex의 한자에는 반드시 漢字(かんじ) 형식으로 후리가나를 괄호로 표기.
+JSON 외 텍스트 절대 금지.`;
+  try{
+    let raw=await callChat([{role:'user',content:prompt}],1200);
+    raw=raw.replace(/```json|```/g,'').trim();
+    const words=JSON.parse(raw);
+    if(!Array.isArray(words)||!words.length)throw new Error('형식 오류');
+    renderWords(words);
+  }catch(e){
+    $('#wordArea').innerHTML=`<div class="word-card">⚠ 단어 생성 실패: ${esc(e.message||'')}<br>다시 시도해주세요.</div>`;
+  }
+}
+function renderWords(words){
+  $('#wordArea').innerHTML=words.map((w,i)=>`
+    <div class="word-card">
+      <div class="word-jp">${esc(w.word)}${w.furigana?` <span style="font-size:14px;color:var(--muted)">(${esc(w.furigana)})</span>`:''}</div>
+      <div class="word-mean">${esc(w.meaning)}</div>
+      ${w.ex?`<div class="word-ex">${esc(w.ex)}<span class="exko">${esc(w.exko||'')}</span></div>`:''}
+      <button class="word-speak" data-i="${i}">🔊 예문 듣기</button>
+    </div>
+  `).join('');
+  $('#wordArea').querySelectorAll('.word-speak').forEach(b=>{
+    b.onclick=()=>{const w=words[+b.dataset.i];speakBackend(stripFurigana(w.ex||w.word));};
+  });
+}
+
+/* ============ 문법 퀴즈 (객관식: 과거형·부정형) ============ */
 let quiz={items:[],idx:0,correct:0};
 $('#quizBtn').onclick=startQuiz;
 $('#quizCloseBtn').onclick=()=>{quizOverlay.style.display='none';};
@@ -423,68 +498,71 @@ async function startQuiz(){
   quiz={items:[],idx:0,correct:0};
   $('#quizScore').textContent='';
   $('#quizArea').innerHTML='<div class="fb-loading"><div class="spinner"></div>문제를 만들고 있어요...</div>';
-  const profile=loadProfile();
-  const prompt=`일본어 학습자(수준:${state.level})를 위한 "일본어→한국어 해석" 퀴즈를 만드세요.
-${profile?'학습자 관심사를 반영하면 좋음: '+profile:''}
-서로 다른 일본어 문장 5개를 JSON 배열로만 출력. 형식: [{"jp":"일본어 문장","answer":"자연스러운 한국어 해석"}]
-수준에 맞는 실용 회화 문장으로. JSON 외 다른 텍스트 절대 금지.`;
+  const prompt=`일본어 학습자(수준:${state.level})를 위한 "동사 활용" 객관식 퀴즈 5문제를 만드세요.
+주제: 과거형(た형/ました), 부정형(ない형/ません), 과거부정형(なかった/ませんでした)에 집중.
+각 문제는 문장의 빈칸에 들어갈 올바른 동사 활용형을 4개 보기 중 고르는 형식.
+아래 JSON 배열로만 출력. 형식:
+[{
+  "sentence":"빈칸(___)이 있는 일본어 문장. 한자는 漢字(かんじ) 형식 후리가나 표기",
+  "prompt":"무엇을 묻는지 한국어로 짧게 (예: '먹었다'의 올바른 형태는?)",
+  "options":["보기1","보기2","보기3","보기4"],
+  "correct":0,
+  "explain":"왜 그 답인지 한국어로 짧고 쉽게 (활용 규칙 설명)"
+}]
+- correct는 정답 보기의 인덱스(0~3).
+- 보기는 헷갈리는 활용형들로 구성(예: 食べた/食べる/食べない/食べなかった).
+- 수준에 맞는 일상 동사로.
+JSON 외 텍스트 절대 금지.`;
   try{
-    let raw=await callChat([{role:'user',content:prompt}],700);
+    let raw=await callChat([{role:'user',content:prompt}],1400);
     raw=raw.replace(/```json|```/g,'').trim();
     quiz.items=JSON.parse(raw);
     if(!Array.isArray(quiz.items)||!quiz.items.length)throw new Error('형식 오류');
     renderQuizItem();
   }catch(e){
-    $('#quizArea').innerHTML=`<div class="quiz-result">⚠ 문제 생성 실패: ${esc(e.message||'')}<br>다시 시도해주세요.</div>`;
+    $('#quizArea').innerHTML=`<div class="q-explain">⚠ 문제 생성 실패: ${esc(e.message||'')}<br>다시 시도해주세요.</div>`;
   }
 }
 function renderQuizItem(){
   const it=quiz.items[quiz.idx];
   $('#quizScore').textContent=`${quiz.idx+1} / ${quiz.items.length}`;
+  const opts=it.options.map((o,i)=>`<button class="opt" data-i="${i}">${esc(o)}</button>`).join('');
   $('#quizArea').innerHTML=`
-    <div class="quiz-q">${esc(it.jp)}</div>
-    <button class="mini" id="qSpeak" style="width:auto;height:auto;border-radius:12px;padding:8px 14px;margin:0 auto 14px;display:block">🔊 듣기</button>
-    <input class="quiz-input" id="qInput" placeholder="한국어로 해석을 입력하세요" autocomplete="off">
-    <button class="primary" id="qSubmit" style="margin-top:12px">제출</button>
+    <div class="q-sentence">${esc(it.sentence)}</div>
+    <div style="text-align:center;color:var(--muted);font-size:13px;margin-bottom:14px">${esc(it.prompt||'')}</div>
+    ${opts}
   `;
-  $('#qSpeak').onclick=()=>speakBackend(it.jp);
-  const inp=$('#qInput');inp.focus();
-  const submit=()=>gradeQuiz(inp.value.trim());
-  $('#qSubmit').onclick=submit;
-  inp.addEventListener('keydown',e=>{if(e.key==='Enter')submit();});
+  $('#quizArea').querySelectorAll('.opt').forEach(b=>{
+    b.onclick=()=>pickAnswer(+b.dataset.i);
+  });
 }
-async function gradeQuiz(userAnswer){
-  if(!userAnswer)return;
+function pickAnswer(chosen){
   const it=quiz.items[quiz.idx];
-  $('#quizArea').innerHTML='<div class="fb-loading"><div class="spinner"></div>채점 중...</div>';
-  const prompt=`일본어 문장: "${it.jp}"
-모범 한국어 해석: "${it.answer}"
-학습자가 입력한 해석: "${userAnswer}"
-
-학습자의 해석이 의미상 맞는지 판정하세요. 사소한 표현 차이는 정답으로 인정(뜻이 통하면 OK). 아래 JSON만 출력:
-{"correct":true 또는 false,"comment":"짧은 한국어 피드백(왜 맞았는지/틀렸는지, 자연스러운 해석 제시)"}
-JSON 외 텍스트 금지.`;
-  let res={correct:false,comment:''};
-  try{let raw=await callChat([{role:'user',content:prompt}],300);raw=raw.replace(/```json|```/g,'').trim();res=JSON.parse(raw);}catch(e){res={correct:false,comment:'채점 오류. 모범답안: '+it.answer};}
-  if(res.correct)quiz.correct++;
+  const correct=it.correct;
+  const buttons=$('#quizArea').querySelectorAll('.opt');
+  buttons.forEach((b,i)=>{
+    b.disabled=true;
+    if(i===correct)b.classList.add('correct');
+    if(i===chosen&&chosen!==correct)b.classList.add('wrong');
+  });
+  if(chosen===correct)quiz.correct++;
   const last=quiz.idx>=quiz.items.length-1;
-  $('#quizArea').innerHTML=`
-    <div class="quiz-q" style="font-size:19px">${esc(it.jp)}</div>
-    <div class="quiz-result">
-      <span class="badge ${res.correct?'ok':'no'}">${res.correct?'정답':'아쉬워요'}</span>
-      <div style="margin-top:8px">내 해석: ${esc(userAnswer)}</div>
-      <div style="margin-top:4px;color:var(--jade)">모범: ${esc(it.answer)}</div>
-      <div style="margin-top:8px;color:var(--muted)">${esc(res.comment||'')}</div>
+  const box=document.createElement('div');
+  box.innerHTML=`
+    <div class="q-explain">
+      <span class="badge ${chosen===correct?'ok':'no'}">${chosen===correct?'정답':'아쉬워요'}</span>
+      <div style="margin-top:8px">${esc(it.explain||'')}</div>
     </div>
-    <button class="primary" id="qNext" style="margin-top:14px">${last?'결과 보기':'다음 문제'}</button>
+    <button class="primary" id="qNext" style="margin-top:14px;width:100%">${last?'결과 보기':'다음 문제'}</button>
   `;
+  $('#quizArea').appendChild(box);
   $('#qNext').onclick=()=>{
     if(last){
-      $('#quizArea').innerHTML=`<div class="quiz-result" style="text-align:center">
+      $('#quizArea').innerHTML=`<div class="q-explain" style="text-align:center">
         <div style="font-size:32px;margin-bottom:8px">${quiz.correct===quiz.items.length?'🎉':'💪'}</div>
         <div style="font-size:18px;font-weight:700">${quiz.items.length}문제 중 ${quiz.correct}개 정답!</div>
       </div>
-      <button class="primary gold" id="qAgain" style="margin-top:14px">새 문제 풀기</button>`;
+      <button class="primary gold" id="qAgain" style="margin-top:14px;width:100%">새 문제 풀기</button>`;
       $('#quizScore').textContent='';
       $('#qAgain').onclick=startQuiz;
     }else{quiz.idx++;renderQuizItem();}
