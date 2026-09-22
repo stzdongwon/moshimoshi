@@ -174,7 +174,6 @@ body{background:#0e121d}.app{max-width:460px;background:var(--night);isolation:i
       <button data-lvl="inter">중급 N3-N2</button>
       <button data-lvl="adv">고급 N1</button>
     </div>
-    <div class="foot" id="lvlAuto"></div>
     <select id="callMode" hidden><option value="free">프리토킹</option><option value="lesson">강의</option></select><div id="modeHelp" hidden></div><label class="setting">목소리<select id="voiceChoice"><option value="marin">Marin</option><option value="cedar">Cedar</option><option value="coral">Coral</option><option value="nova">Nova · 기존 목소리</option></select></label>
     <button class="ghost" id="checkConnection">대화 연결 확인</button><p id="connectionResult" class="foot" role="status"></p><div class="voice-preview"><label class="setting">미리듣기 말투<select id="previewStyle"><option value="conversation">통화 · 편안한 대화</option><option value="lesson">강의 · 차분한 설명</option></select></label><div class="row"><button class="ghost" id="previewVoice">선택한 목소리 듣기</button><button class="ghost" id="stopPreview">멈추기</button></div><p id="previewStatus" role="status">같은 예문으로 목소리를 비교해보세요. AI 생성 음성입니다.</p></div>
     <label class="setting">음성 속도<select id="voiceSpeed"><option value="0.85">천천히</option><option value="1" selected>보통</option><option value="1.1">조금 빠르게</option></select></label>
@@ -268,402 +267,8 @@ body{background:#0e121d}.app{max-width:460px;background:var(--night);isolation:i
 </div>
 
 <script>
-/* もしもし — realtime call module (v1)
- *
- * 기존 녹음→업로드→STT→chat→TTS 파이프라인을 대체한다.
- * WebRTC로 OpenAI Realtime에 직접 붙으므로 브라우저 ↔ 모델이 곧바로 오디오를 주고받는다.
- *
- * 왜 이 구조인가
- *  - 말하는 도중에 이미 인식이 진행된다. "녹음 종료"를 기다리지 않는다.
- *  - 끼어들면 선생님이 즉시 멈춘다 (interrupt_response).
- *  - 맞장구가 한 턴으로 바로 나온다. TTS 합성 완료를 기다리지 않는다.
- *
- * 키는 브라우저에 오지 않는다. Worker가 수명 짧은 client secret만 발급한다.
- *
- * 사용법
- *   const call = new MoshiCall({
- *     backend: BACKEND,
- *     getContext: () => ({ level: state.level, profile: '...', recent: '...', userId: 'u1' }),
- *     onState: s => renderCallState(s),
- *     onTranscript: t => appendLine(t.role, t.text),
- *     onError: e => toast(e.message),
- *   });
- *   await call.start();
- *   const result = await call.finish();   // 통화 종료 + 피드백 + 레벨 추정
- */
-(function (global) {
-  'use strict';
-
-  var STATES = {
-    IDLE: 'idle',
-    CONNECTING: 'connecting',
-    LISTENING: 'listening',   // 선생님이 듣고 있음 (사용자 차례)
-    HEARING: 'hearing',       // 사용자가 말하는 중으로 감지됨
-    THINKING: 'thinking',     // 답변 생성 시작
-    SPEAKING: 'speaking',     // 선생님이 말하는 중
-    ENDED: 'ended',
-  };
-
-  function noop() {}
-
-  function MoshiCall(opts) {
-    opts = opts || {};
-    this.backend = String(opts.backend || '').replace(/\/+$/, '');
-    this.getContext = opts.getContext || function () { return {}; };
-    this.onState = opts.onState || noop;
-    this.onTranscript = opts.onTranscript || noop;
-    this.onError = opts.onError || noop;
-    this.onLevel = opts.onLevel || noop;   // 마이크 입력 크기 0~1 (레벨 바 애니메이션용)
-    // 비용 가드. realtime은 분 단위 과금이므로 통화가 방치되면 계속 돈이 나간다.
-    this.maxMinutes = typeof opts.maxMinutes === 'number' ? opts.maxMinutes : 20;
-    // 무음이 이만큼 이어지면 자동 종료 (사용자가 앱을 두고 자리를 뜬 경우)
-    this.idleMinutes = typeof opts.idleMinutes === 'number' ? opts.idleMinutes : 3;
-
-    this.state = STATES.IDLE;
-    this.muted = false;
-    this.turns = [];
-    this.pc = null;
-    this.dc = null;
-    this.stream = null;
-    this.audioEl = null;
-    this.startedAt = 0;
-    this.lastVoiceAt = 0;
-    this._guard = null;
-    this._pendingAssistant = '';
-    this._meter = null;
-    this._audioCtx = null;
-  }
-
-  MoshiCall.STATES = STATES;
-
-  MoshiCall.prototype._setState = function (s) {
-    if (this.state === s) return;
-    this.state = s;
-    try { this.onState(s); } catch (e) { /* UI 오류가 통화를 끊지 않게 */ }
-  };
-
-  MoshiCall.prototype._fail = function (message, cause) {
-    if (cause) console.error('[MoshiCall]', message, cause);
-    try { this.onError(new Error(message)); } catch (e) {}
-  };
-
-  MoshiCall.prototype.elapsedMs = function () {
-    return this.startedAt ? Date.now() - this.startedAt : 0;
-  };
-
-  /* ---------------------------------------------------------------- */
-  MoshiCall.prototype.start = async function () {
-    if (this.state !== STATES.IDLE && this.state !== STATES.ENDED) return;
-    this.turns = [];
-    this._pendingAssistant = '';
-    this._setState(STATES.CONNECTING);
-
-    var token;
-    try {
-      var ctx = this.getContext() || {};
-      var r = await fetch(this.backend + '/realtime/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          level: ctx.level || 'beginner',
-          profile: ctx.profile || '',
-          recent: ctx.recent || '',
-          speed: typeof ctx.speed === 'number' ? ctx.speed : 1,
-          userId: ctx.userId || '',
-        }),
-      });
-      var data = await r.json().catch(function () { return {}; });
-      if (!r.ok || !data.value) throw new Error(data.error || '통화 토큰을 받지 못했어요.');
-      token = data.value;
-    } catch (e) {
-      this._setState(STATES.ENDED);
-      this._fail(e.message || '통화 연결에 실패했어요.', e);
-      return;
-    }
-
-    // 마이크. 브라우저 쪽 에코 제거를 켜 두지 않으면 선생님 목소리가 다시 입력돼
-    // 스스로 끼어드는 현상이 생긴다.
-    try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      });
-    } catch (e) {
-      this._setState(STATES.ENDED);
-      this._fail('마이크를 사용할 수 없어요. 브라우저 권한을 확인해주세요.', e);
-      return;
-    }
-
-    var self = this;
-    try {
-      this.pc = new RTCPeerConnection();
-
-      this.audioEl = document.createElement('audio');
-      this.audioEl.autoplay = true;
-      this.audioEl.playsInline = true;
-      this.pc.ontrack = function (e) { self.audioEl.srcObject = e.streams[0]; };
-
-      this.stream.getTracks().forEach(function (t) { self.pc.addTrack(t, self.stream); });
-
-      this.dc = this.pc.createDataChannel('oai-events');
-      this.dc.onmessage = function (e) { self._onEvent(e); };
-      this.dc.onerror = function (e) { console.error('[MoshiCall] datachannel', e); };
-
-      this.pc.onconnectionstatechange = function () {
-        var s = self.pc && self.pc.connectionState;
-        if (s === 'failed' || s === 'disconnected') {
-          self._fail('통화 연결이 끊겼어요.');
-          self._teardown();
-          self._setState(STATES.ENDED);
-        }
-      };
-
-      var offer = await this.pc.createOffer();
-      await this.pc.setLocalDescription(offer);
-
-      var sdpRes = await fetch('https://api.openai.com/v1/realtime/calls', {
-        method: 'POST',
-        body: offer.sdp,
-        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/sdp' },
-      });
-      if (!sdpRes.ok) throw new Error('통화 연결에 실패했어요 (' + sdpRes.status + ').');
-      await this.pc.setRemoteDescription({ type: 'answer', sdp: await sdpRes.text() });
-    } catch (e) {
-      this._teardown();
-      this._setState(STATES.ENDED);
-      this._fail(e.message || '통화 연결에 실패했어요.', e);
-      return;
-    }
-
-    this.startedAt = Date.now();
-    this.lastVoiceAt = Date.now();
-    this._setState(STATES.LISTENING);
-    this._startGuard();
-    this._startMeter();
-  };
-
-  /* 비용·방치 가드 ------------------------------------------------- */
-  MoshiCall.prototype._startGuard = function () {
-    var self = this;
-    this._guard = setInterval(function () {
-      if (self.state === STATES.IDLE || self.state === STATES.ENDED) return;
-      if (self.elapsedMs() > self.maxMinutes * 60000) {
-        self._fail('통화가 ' + self.maxMinutes + '분을 넘어 자동으로 종료됐어요.');
-        self.stop();
-      } else if (Date.now() - self.lastVoiceAt > self.idleMinutes * 60000) {
-        self._fail('한동안 말이 없어 통화를 종료했어요.');
-        self.stop();
-      }
-    }, 5000);
-  };
-
-  /* 서버 이벤트 ---------------------------------------------------- */
-  MoshiCall.prototype._onEvent = function (e) {
-    var ev;
-    try { ev = JSON.parse(e.data); } catch (_) { return; }
-
-    switch (ev.type) {
-      case 'input_audio_buffer.speech_started':
-        this.lastVoiceAt = Date.now();
-        this._setState(STATES.HEARING);
-        break;
-
-      case 'input_audio_buffer.speech_stopped':
-        this.lastVoiceAt = Date.now();
-        this._setState(STATES.THINKING);
-        break;
-
-      case 'conversation.item.input_audio_transcription.completed':
-        if (ev.transcript && ev.transcript.trim()) {
-          this._push('user', ev.transcript.trim());
-        }
-        break;
-
-      case 'response.created':
-        this._setState(STATES.THINKING);
-        break;
-
-      case 'response.output_audio_transcript.delta':
-        this._pendingAssistant += (ev.delta || '');
-        this._setState(STATES.SPEAKING);
-        break;
-
-      case 'response.output_audio_transcript.done':
-        if (ev.transcript && ev.transcript.trim()) {
-          this._push('assistant', ev.transcript.trim());
-        }
-        this._pendingAssistant = '';
-        break;
-
-      case 'response.done':
-        this._setState(STATES.LISTENING);
-        break;
-
-      // 사용자가 끼어들어 서버가 답변을 취소한 경우
-      case 'response.cancelled':
-        this._pendingAssistant = '';
-        this._setState(STATES.HEARING);
-        break;
-
-      case 'error':
-        this._fail((ev.error && ev.error.message) || '통화 중 오류가 발생했어요.', ev);
-        break;
-
-      default:
-        break;
-    }
-  };
-
-  MoshiCall.prototype._push = function (role, text) {
-    this.turns.push({ role: role, text: text, at: Date.now() });
-    try { this.onTranscript({ role: role, text: text }); } catch (e) {}
-  };
-
-  /* 제어 ----------------------------------------------------------- */
-  MoshiCall.prototype.mute = function (on) {
-    this.muted = !!on;
-    if (!this.stream) return;
-    this.stream.getAudioTracks().forEach(function (t) { t.enabled = !on; });
-  };
-
-  // 텍스트로 말하기. realtime에서도 음성 대신 텍스트 턴을 넣을 수 있다.
-  // 답변은 평소처럼 음성으로 돌아온다.
-  MoshiCall.prototype.sendText = function (text) {
-    if (!this.dc || this.dc.readyState !== 'open') return false;
-    text = String(text || '').trim();
-    if (!text) return false;
-    this.dc.send(JSON.stringify({
-      type: 'conversation.item.create',
-      item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: text }] },
-    }));
-    this.dc.send(JSON.stringify({ type: 'response.create' }));
-    this._push('user', text);
-    this.lastVoiceAt = Date.now();
-    return true;
-  };
-
-  // 마이크 입력 크기. 기존 #levelBar를 그대로 살리기 위한 것.
-  // "지금 내 말이 들어가고 있다"가 보이면 학습자가 훨씬 편하게 말한다.
-  MoshiCall.prototype._startMeter = function () {
-    if (this.onLevel === noop || !this.stream) return;
-    var Ctx = global.AudioContext || global.webkitAudioContext;
-    if (!Ctx) return;
-    var self = this;
-    try {
-      this._audioCtx = new Ctx();
-      var src = this._audioCtx.createMediaStreamSource(this.stream);
-      var an = this._audioCtx.createAnalyser();
-      an.fftSize = 512;
-      src.connect(an);
-      var buf = new Uint8Array(an.frequencyBinCount);
-      var tick = function () {
-        if (!self._audioCtx) return;
-        an.getByteTimeDomainData(buf);
-        var peak = 0;
-        for (var i = 0; i < buf.length; i++) {
-          var v = Math.abs(buf[i] - 128) / 128;
-          if (v > peak) peak = v;
-        }
-        try { self.onLevel(self.muted ? 0 : Math.min(1, peak * 1.8)); } catch (e) {}
-        self._meter = global.requestAnimationFrame(tick);
-      };
-      this._meter = global.requestAnimationFrame(tick);
-    } catch (e) { /* 레벨 표시는 있으면 좋은 것. 실패해도 통화는 계속된다. */ }
-  };
-
-  // 선생님 말을 즉시 끊는다 (화면의 "끊고 말하기" 버튼용)
-  MoshiCall.prototype.barge = function () {
-    if (this.dc && this.dc.readyState === 'open') {
-      this.dc.send(JSON.stringify({ type: 'response.cancel' }));
-    }
-  };
-
-  MoshiCall.prototype._teardown = function () {
-    if (this._guard) { clearInterval(this._guard); this._guard = null; }
-    if (this._meter) { try { global.cancelAnimationFrame(this._meter); } catch (e) {} this._meter = null; }
-    if (this._audioCtx) { try { this._audioCtx.close(); } catch (e) {} this._audioCtx = null; }
-    try { if (this.dc) this.dc.close(); } catch (e) {}
-    try { if (this.pc) this.pc.close(); } catch (e) {}
-    if (this.stream) this.stream.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} });
-    if (this.audioEl) { try { this.audioEl.srcObject = null; } catch (e) {} }
-    this.dc = null; this.pc = null; this.stream = null;
-  };
-
-  MoshiCall.prototype.stop = function () {
-    this._teardown();
-    this._setState(STATES.ENDED);
-  };
-
-  /* 통화 종료 + 피드백 --------------------------------------------- *
-   * 통화 중에는 절대 부르지 않는다. 지연에 영향이 없도록 종료 후 한 번만.
-   * ---------------------------------------------------------------- */
-  MoshiCall.prototype.finish = async function () {
-    var turns = this.turns.slice();
-    this.stop();
-    if (!turns.length) return null;
-    try {
-      var r = await fetch(this.backend + '/feedback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ turns: turns }),
-      });
-      var data = await r.json().catch(function () { return {}; });
-      if (!r.ok) throw new Error(data.error || '피드백을 만들지 못했어요.');
-      return { turns: turns, feedback: data };
-    } catch (e) {
-      this._fail(e.message || '피드백을 만들지 못했어요.', e);
-      return { turns: turns, feedback: null };
-    }
-  };
-
-  global.MoshiCall = MoshiCall;
-
-  /* ---------------------------------------------------------------- *
-   * 레벨 자동 갱신 헬퍼
-   *
-   * 한 번의 통화로 레벨이 튀면 학습자는 "선생님이 갑자기 나를 무시한다"고 느낀다.
-   * 그래서 EMA로 천천히 움직인다. alpha 0.25 = 통화 4번 정도에 걸쳐 반영.
-   * 이해(comprehension)와 발화(production)를 따로 유지하는 게 핵심이다.
-   * ---------------------------------------------------------------- */
-  // 올라갈 때보다 내려갈 때를 더 느리게 한다.
-  // 컨디션이 나쁜 통화 한 번으로 레벨이 떨어지면, 학습자가 체감하는 건
-  // "선생님이 갑자기 나를 낮춰 본다"이다. 올릴 때도 급하면 버거워진다.
-  function ema(prev, next, up, down) {
-    if (typeof prev !== 'number' || !isFinite(prev)) return next;
-    var alpha = next >= prev ? up : down;
-    return Math.round(prev * (1 - alpha) + next * alpha);
-  }
-
-  function bucket(score) {
-    if (score < 40) return 'beginner';
-    if (score < 70) return 'inter';
-    return 'adv';
-  }
-
-  // 선생님이 말하는 난이도는 "이해"를 따라간다. i+1 (조금 위)로 올려 잡는다.
-  // 요구하는 발화 난이도는 "발화"를 따라간다.
-  global.MoshiLevel = {
-    ema: ema,
-    bucket: bucket,
-    apply: function (stored, estimate, opts) {
-      if (!estimate || typeof estimate.comprehension !== 'number') return stored;
-      var up = (opts && typeof opts.up === 'number') ? opts.up : 0.25;
-      var down = (opts && typeof opts.down === 'number') ? opts.down : 0.12;
-      var next = {
-        comprehension: ema(stored && stored.comprehension, estimate.comprehension, up, down),
-        production: ema(stored && stored.production, estimate.production, up, down),
-      };
-      next.speakLevel = bucket(Math.min(100, next.comprehension + 8)); // i+1
-      next.expectLevel = bucket(next.production);
-      next.label = ['N5', 'N4', 'N3', 'N2', 'N1'][Math.min(4, Math.floor(next.production / 20))];
-      return next;
-    },
-  };
-})(typeof window !== 'undefined' ? window : globalThis);
-
-</script>
-<script>
 /* =====================================================================
-   もしもし v6 — 프리토킹은 realtime, 강의는 기존 파이프라인
+   もしもし v3
    STT: 백엔드 /stt (Whisper)   TTS: 백엔드 /tts (GPT-4o-mini-tts, 사람다운 발음)
    대화/퀴즈/피드백: 백엔드 /chat (GPT)
    기억: localStorage 프로필
@@ -824,16 +429,10 @@ function feedbackPrompt(level){
  "good":["실제로 잘한 점. 한국어 한 문장. 1~2개"],
  "fix":[{"said":"학습자가 말한 표현(히라가나)","better":"자연스러운 존댓말 표현(히라가나)","why":"왜 그런지 한국어 한 문장"}],
  "expressions":[{"jp":"오늘 나온 표현. 히라가나 예문","ko":"한국어 뜻"}],
- "next":"다음 통화에서 연습할 문법 또는 표현 한 가지와 그 근거. 한국어 한두 문장",
- "level":{"comprehension":0,"production":0,"evidence":"판단 근거. 한국어 한 문장"}
+ "next":"다음 통화에서 연습할 문법 또는 표현 한 가지와 그 근거. 한국어 한두 문장"
 }
 - fix는 최대 3개이고, 고칠 것이 없으면 빈 배열로 두세요.
 - expressions는 3개.
-- level은 0~100 연속값입니다. 대략 N5=0~20, N4=20~40, N3=40~60, N2=60~80, N1=80~100.
-- comprehension(이해)과 production(발화)은 반드시 따로 매기세요. 회화 학습자는 이 둘이 거의 항상 다릅니다.
-  comprehension 근거: 되묻은 횟수, 한국어로 되물었는지, 선생님 말을 이해했는지.
-  production 근거: 사용 어휘 등급, 문장당 절 개수, 조사 오류, 한국어 섞임 비율.
-- 통화 한 번으로 과하게 판단하지 마세요. 확신이 없으면 중간값을 주세요.
 JSON 외 텍스트 절대 금지.`;
 }
 function katakanaToHiragana(text){return String(text).replace(/[ァ-ヶ]/g,c=>String.fromCharCode(c.charCodeAt(0)-0x60));}
@@ -854,10 +453,6 @@ function parseFeedback(raw){
   fb.fix=asList(o.fix,3).map(f=>f&&typeof f==='object'?{said:asText(f.said),better:asText(f.better),why:asText(f.why)}:null).filter(f=>f&&(f.said||f.better));
   fb.expressions=asList(o.expressions,4).map(x=>x&&typeof x==='object'?{jp:asText(x.jp),ko:asText(x.ko)}:null).filter(x=>x&&x.jp);
   fb.next=asText(o.next);
-  if(o.level&&typeof o.level==='object'){
-    const c=Number(o.level.comprehension),p=Number(o.level.production);
-    if(isFinite(c)&&isFinite(p))fb.level={comprehension:Math.max(0,Math.min(100,c)),production:Math.max(0,Math.min(100,p)),evidence:asText(o.level.evidence)};
-  }
   if(!fb.good.length&&!fb.fix.length&&!fb.expressions.length&&!fb.next)return legacyFeedback(raw);
   return fb;
 }
@@ -923,9 +518,7 @@ const avatar=$('#avatar'),statusText=$('#statusText'),hint=$('#hint'),timerEl=$(
 
 document.querySelectorAll('#lvlPick button').forEach(b=>{
   b.classList.toggle('on',b.dataset.lvl===state.level);
-  b.onclick=()=>{state.level=b.dataset.lvl;
-    try{localStorage.setItem(k('levelLock'),'1');localStorage.setItem(k('level'),state.level);}catch(e){}
-    renderLevelPick();};
+  b.onclick=()=>{document.querySelectorAll('#lvlPick button').forEach(x=>x.classList.remove('on'));b.classList.add('on');state.level=b.dataset.lvl;};
 });
 
 $('#callMode').onchange=()=>{$('#modeHelp').textContent=$('#callMode').value==='lesson'?'이 브라우저의 최근 통화 3개를 바탕으로 설명하고 함께 연습해요.':'편안한 존댓말로 자유롭게 대화해요.';};
@@ -1123,9 +716,8 @@ function beginCall(){
   transcript.innerHTML='';
   startOverlay.classList.add('hidden');fbOverlay.style.display='none';histOverlay.style.display='none';profOverlay.style.display='none';quizOverlay.style.display='none';wordOverlay.style.display='none';
   // 첫 발화 때 마이크 권한/초기화를 기다리지 않도록 미리 열어 둡니다.
-  startTimer();
-  if(state.mode==='free'&&window.MoshiCall){startRealtimeCall();}
-  else{if($('#micKeep').value==='1')ensureStream().catch(()=>{});startConversation();}
+  if($('#micKeep').value==='1')ensureStream().catch(()=>{});
+  startTimer();startConversation();
 }
 function startTimer(){state.startTime=Date.now();clearInterval(state.timerId);state.timerId=setInterval(()=>{const s=Math.floor((Date.now()-state.startTime)/1000);timerEl.textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');},500);}
 function stopTimer(){clearInterval(state.timerId);}
@@ -1195,9 +787,7 @@ function makeAiBubble(){
 function esc(s){return String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
 function scrollDown(){transcript.scrollTop=transcript.scrollHeight;}
 function setStatus(t){statusText.textContent=t;}
-$('#repeatBtn').onclick=()=>{
-  if(rtCall){rtCall.sendText('ごめん、もう一回言って');return;}   // 재생 대신 되묻기
-  unlockAudio();speakBackend(stripFurigana(state.lastAiText));};
+$('#repeatBtn').onclick=()=>{unlockAudio();speakBackend(stripFurigana(state.lastAiText));};
 
 /* ---- 녹음 ----
    1) getUserMedia를 매번 호출하지 않고 통화 내내 하나의 스트림을 재사용해 시작 지연을 없앱니다.
@@ -1248,10 +838,6 @@ function finishRecording(){
   resetMic();
 }
 micBtn.onclick=async()=>{
-  if(rtCall){
-    if(rtCall.state==='speaking'){rtCall.barge();return;}   // 선생님 말 끊기
-    rtCall.mute(!rtCall.muted);renderRtState(rtCall.state);return;
-  }
   if(!state.active||state.busy||state.acquiring)return;
   unlockAudio();
   if(state.recording){finishRecording();return;}
@@ -1291,9 +877,7 @@ micBtn.onclick=async()=>{
 };
 $('#textBtn').onclick=()=>{if(!state.active||state.busy||state.recording||state.acquiring)return;stopAllAudio();$('#draft').hidden=false;$('#draftText').focus();};
 $('#cancelDraft').onclick=()=>{$('#draft').hidden=true;$('#draftText').value='';};
-$('#sendDraft').onclick=()=>{const t=$('#draftText').value.trim();if(!t)return;
-  if(rtCall){if(rtCall.sendText(t)){$('#draft').hidden=true;$('#draftText').value='';}return;}
-  if(!state.busy&&!state.recording&&!state.acquiring){$('#draft').hidden=true;$('#draftText').value='';handleUserText(t);}};
+$('#sendDraft').onclick=()=>{const t=$('#draftText').value.trim();if(t&&!state.busy&&!state.recording&&!state.acquiring){$('#draft').hidden=true;$('#draftText').value='';handleUserText(t);}};
 async function handleUserText(text){
   if(!state.active||state.busy)return;const session=state.session;
   state.busy=true;micBtn.disabled=true;stopAllAudio();addMe(text);state.history.push({role:'user',content:text});setStatus('선생님이 생각 중...');
@@ -1316,7 +900,6 @@ async function endCall(){
   state.active=false;state.session++;
   const endedSession=state.session,view=++feedbackView;
   const callMode=state.mode,callLevel=state.level,callDate=new Date().toISOString(),callUid=currentUser();
-  if(rtCall){try{rtCall.stop();}catch(e){}rtCall=null;}
   if(state.recording){try{mediaRecorder.stop();}catch(e){}state.recording=false;}
   stopVad();releaseStream();resetMic();stopAllAudio();stopTimer();
   const userTurns=state.history.filter(h=>h.role==='user'&&h.content!=='(start)').length;
@@ -1332,7 +915,6 @@ async function endCall(){
   try{
     const raw=await callChat([{role:'system',content:feedbackPrompt(callLevel)},{role:'user',content:'대화 기록:\n\n'+convo}],1200);
     fb=parseFeedback(raw);
-    if(fb&&fb.level)applyAutoLevel(fb.level);
     await toHiragana(fb);
     fbText=feedbackToText(fb);
     if(endedSession===state.session&&view===feedbackView)showFeedback(fb,meta);
@@ -1833,8 +1415,7 @@ function renderUserPick(){
 }
 function applyUserToUI(){
   state.level=localStorage.getItem(k('level'))||'beginner';
-  if(typeof renderLevelPick==='function')renderLevelPick();
-  else document.querySelectorAll('#lvlPick button').forEach(b=>b.classList.toggle('on',b.dataset.lvl===state.level));
+  document.querySelectorAll('#lvlPick button').forEach(b=>b.classList.toggle('on',b.dataset.lvl===state.level));
   $('#userHelp').textContent=`'${currentUserName()}' 의 기억 · 통화기록 · 오답노트를 사용 중이에요.`;
   renderUserPick();
   if(window.shellReady)window.refreshShell(true);
@@ -2072,137 +1653,13 @@ function attachConnectionCheck(){
     const result=document.querySelector('#connectionResult');button.disabled=true;result.textContent='연결 상태를 확인하고 있어요…';
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),8000);
     try{const r=await fetch(BACKEND+'/health',{signal:controller.signal,cache:'no-store'});if(!r.ok)throw Error('연결 실패');const data=await r.json();
-      result.textContent=data.features?.includes('realtime-call')
-        ?'실시간 통화 서버에 연결됐어요 · '+(data.realtimeModel||'')
-        :'이전 버전 서버입니다. 새 worker.mjs를 배포해야 실시간 통화가 켜져요.';
+      result.textContent=data.version>=5&&data.features?.includes('quality-conversation')?'개선된 대화 서버에 연결됐어요 · '+data.model:'이전 버전 서버입니다. 새 worker.mjs를 배포해야 대화 개선이 적용돼요.';
     }catch(e){result.textContent='서버 상태를 확인하지 못했어요. 네트워크와 서버 배포를 확인해주세요.';}
     finally{clearTimeout(timer);button.disabled=false;}
   };
 }
 if(typeof document!=='undefined')attachConnectionCheck();
 
-/* ===================== realtime 통화 통합 (v6) =====================
-   프리토킹은 WebRTC realtime(speech-to-speech)으로 전환.
-   강의 모드는 기존 STT→chat→TTS 파이프라인을 그대로 씁니다.
-   피드백·기억갱신·오답노트는 state.history 만 보므로 손대지 않았습니다.
-   ================================================================= */
-let rtCall = null;
-
-const RT_LABEL = {
-  connecting:'연결 중...', listening:'통화 중', hearing:'듣고 있어요',
-  thinking:'생각 중...', speaking:'말하는 중', ended:'통화 종료',
-};
-
-function renderRtState(s){
-  setStatus(RT_LABEL[s] || '통화 중');
-  avatar.classList.toggle('speaking', s === 'speaking');
-  micBtn.classList.toggle('recording', s === 'hearing');
-  micLabel.textContent = s === 'speaking' ? '끊고 말하기'
-                       : (rtCall && rtCall.muted) ? '음소거 해제' : '음소거';
-  hint.textContent = s === 'listening' ? '버튼을 누르지 말고 그냥 말하세요.'
-                   : s === 'hearing'   ? '듣고 있어요'
-                   : s === 'speaking'  ? '끼어들어도 됩니다.' : '';
-}
-
-// realtime 선생님 말풍선. KO 번역이 없으므로 JP 한 줄 + 표현 저장.
-function addRtAi(text){
-  const d = document.createElement('div'); d.className = 'bubble ai';
-  const jp = document.createElement('span'); jp.className = 'jp'; jp.textContent = text;
-  d.appendChild(jp);
-  const save = document.createElement('button');
-  save.className = 'word-speak'; save.textContent = '＋ 표현 저장';
-  save.onclick = () => { saveExpression(text, ''); save.textContent = '저장됨'; save.disabled = true; };
-  d.appendChild(document.createElement('br')); d.appendChild(save);
-  transcript.appendChild(d); scrollDown();
-}
-
-function recentCallsText(){
-  try{
-    return loadCalls().slice(0,2)
-      .map(c => String(c.date||'').slice(0,10) + ': ' + String(c.convo||'').slice(-600))
-      .join('\n').slice(0,1200);
-  }catch(e){ return ''; }
-}
-
-async function startRealtimeCall(){
-  const session = state.session;
-  state.busy = true; micBtn.disabled = true;
-  addSys('연결 중이에요. 연결되면 버튼을 누르지 말고 그냥 일본어로 말하면 됩니다. 막히면 한국어도 OK.');
-  setStatus('연결 중...');
-
-  rtCall = new MoshiCall({
-    backend: BACKEND,
-    getContext: () => ({
-      level:   state.level,
-      profile: loadProfile().text.slice(0,900),
-      recent:  recentCallsText(),
-      speed:   Number($('#voiceSpeed').value) || 1,
-      userId:  currentUser(),
-    }),
-    onState: renderRtState,
-    onTranscript: t => {
-      if(!state.active || session !== state.session) return;
-      if(t.role === 'user'){
-        addMe(t.text);
-        state.history.push({role:'user', content:t.text});
-      }else{
-        addRtAi(t.text);
-        state.history.push({role:'assistant', content:t.text});
-        state.lastAiText = t.text;
-      }
-    },
-    onLevel: v => setLevel(v),
-    onError: e => { if(state.active && session === state.session) addSys('⚠ ' + e.message); },
-    maxMinutes: 20,
-    idleMinutes: 3,
-  });
-
-  await rtCall.start();
-
-  if(!state.active || session !== state.session){
-    if(rtCall){ try{ rtCall.stop(); }catch(e){} rtCall = null; }
-    return;
-  }
-  state.busy = false; micBtn.disabled = false;
-}
-
-/* ---- 레벨 자동 조정 ----
-   통화가 끝날 때 피드백 JSON에 들어온 추정치를 EMA로 반영합니다.
-   이해와 발화를 따로 굴리고, 내려갈 때를 더 느리게 움직입니다.
-   사용자가 레벨을 직접 고르면 고정되고, 그때부턴 자동 조정하지 않습니다. */
-function levelLocked(){ try{ return localStorage.getItem(k('levelLock')) === '1'; }catch(e){ return false; } }
-function levelScore(){ try{ return JSON.parse(localStorage.getItem(k('levelScore')) || 'null'); }catch(e){ return null; } }
-
-function applyAutoLevel(est){
-  if(!est || levelLocked() || !window.MoshiLevel) return;
-  try{
-    const next = MoshiLevel.apply(levelScore(), est);
-    localStorage.setItem(k('levelScore'), JSON.stringify(next));
-    state.level = next.speakLevel;
-    localStorage.setItem(k('level'), state.level);
-    renderLevelPick();
-  }catch(e){}
-}
-
-function renderLevelPick(){
-  document.querySelectorAll('#lvlPick button').forEach(b => b.classList.toggle('on', b.dataset.lvl === state.level));
-  const el = $('#lvlAuto'); if(!el) return;
-  const locked = levelLocked(), s = levelScore();
-  el.textContent = '';
-  const txt = document.createElement('span');
-  txt.textContent = locked
-    ? '레벨 고정됨 · 자동 조정하지 않아요.'
-    : (s ? `자동 조정 중 · 듣기 ${s.comprehension} / 말하기 ${s.production} · ${s.label} 추정`
-         : '통화가 끝날 때마다 레벨이 자동으로 맞춰져요.');
-  const btn = document.createElement('button');
-  btn.className = 'ghost';
-  btn.style.cssText = 'margin-left:8px;padding:4px 10px;font-size:12px;width:auto;display:inline-block';
-  btn.textContent = locked ? '자동으로' : '고정';
-  btn.onclick = () => { try{ localStorage.setItem(k('levelLock'), locked ? '0' : '1'); }catch(e){} renderLevelPick(); };
-  el.append(txt, btn);
-}
-
-if(typeof document!=='undefined')renderLevelPick();
 </script>
 </body>
 </html>
