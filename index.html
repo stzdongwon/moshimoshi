@@ -637,8 +637,17 @@ const ttsCache=new Map();
 let elevenPlaying=null,lastVoiceError='';
 function stopElevenAudio(){elevenPlaying?.abort();elevenPlaying=null;}
 async function receiveEleven(text,voice,signal,onAudio){
+  let received=false;
+  for(let attempt=0;attempt<2;attempt++){
+    try{return await receiveElevenOnce(text,voice,signal,chunk=>{received=true;onAudio(chunk);});}
+    catch(e){
+      if(signal.aborted||received||attempt||!(/연결|시간.*초과|Failed to fetch|NetworkError|network|fetch failed/i.test(e.message)||e.transient))throw e;
+    }
+  }
+}
+async function receiveElevenOnce(text,voice,signal,onAudio){
   const response=await fetch(BACKEND+'/eleven/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,voiceName:voice.replace('eleven:','')}),signal});
-  if(!response.ok){let data;try{data=await response.json();}catch{}throw Error(data?.error||'음성 서버를 업데이트해주세요. ('+response.status+')');}
+  if(!response.ok){let data;try{data=await response.json();}catch{}const error=Error(data?.error||'음성 서버 오류 ('+response.status+')');error.transient=[502,503,504].includes(response.status)&&!data?.error;throw error;}
   if(!response.body)throw Error('음성 스트림을 받지 못했어요.');
   const reader=response.body.getReader(),decoder=new TextDecoder();let pending='',doneFrame=false,bytes=0,identity=null;
   function consume(line){if(!line.trim())return;const item=JSON.parse(line);if(item.error)throw Error(item.error);if(item.provider){identity=item;const badge=document.getElementById('voiceIdentity');if(badge)badge.textContent='요청: '+item.provider+' · '+item.model+' · Voice ID: '+item.voiceId;}if(item.audio){if(!identity||identity.provider!=='ElevenLabs')throw Error('음성 서버 버전을 확인할 수 없어요. 최신 worker.mjs를 배포해주세요.');const badge=document.getElementById('voiceIdentity');if(badge)badge.textContent='음성 수신 확인: '+identity.provider+' · '+identity.model+' · Voice ID: '+identity.voiceId;const raw=atob(item.audio),chunk=Uint8Array.from(raw,c=>c.charCodeAt(0));bytes+=chunk.length;onAudio(chunk);}if(item.done)doneFrame=true;}
@@ -668,8 +677,11 @@ async function playEleven(descriptor,epoch){
   controller.signal.addEventListener('abort',stop,{once:true});
   const timer=setTimeout(()=>controller.abort(),60000);
   try{
-    if(!actx)actx=new (window.AudioContext||window.webkitAudioContext)();
-    await actx.resume();if(actx.state!=='running')throw Error('다시 듣기를 눌러 음성 재생을 허용해주세요.');
+    if(!actx||actx.state==='closed')actx=new (window.AudioContext||window.webkitAudioContext)();
+    let resumeTimer;
+    try{await Promise.race([actx.resume(),new Promise((_,reject)=>{resumeTimer=setTimeout(()=>reject(Error('다시 듣기를 눌러 음성 재생을 허용해주세요.')),3000);})]);}finally{clearTimeout(resumeTimer);}
+    if(controller.signal.aborted||epoch!==audioEpoch)return false;
+    if(actx.state!=='running')throw Error('다시 듣기를 눌러 음성 재생을 허용해주세요.');
     await receiveEleven(descriptor.text,descriptor.voice,controller.signal,chunk=>{
       if(epoch!==audioEpoch||controller.signal.aborted)return;
       const bytes=new Uint8Array(chunk.length+(carry===null?0:1));let offset=0;if(carry!==null)bytes[offset++]=carry;bytes.set(chunk,offset);
@@ -681,11 +693,11 @@ async function playEleven(descriptor,epoch){
       next=Math.max(next,actx.currentTime+.08);source.start(next);next+=buffer.duration/source.playbackRate.value;avatar.classList.add('speaking');
     });
     if(carry!==null)throw Error('음성 데이터가 잘렸어요.');finished=true;if(!nodes.size)resolveDrain();await drain;
+    if(controller.signal.aborted&&epoch===audioEpoch)lastVoiceError='음성 재생 시간이 초과됐어요. 다시 듣기를 눌러주세요.';
     return epoch===audioEpoch&&!controller.signal.aborted;
   }catch(e){if(epoch===audioEpoch){lastVoiceError=controller.signal.aborted?'음성 연결 시간이 초과됐어요.':e.message;}stop();return false;}
   finally{clearTimeout(timer);controller.signal.removeEventListener('abort',stop);if(elevenPlaying===controller){elevenPlaying=null;avatar.classList.remove('speaking');}}
 }
-
 
 function ensureAudio(){
   if(!player){
@@ -874,7 +886,7 @@ function createReplySpeech(){
       hint.textContent='선생님 음성을 준비하고 있어요…';
       const result=await job;
       if(epoch!==audioEpoch)return;
-      if(result.error){failed=true;offerVoiceRecovery(chunks.join(''));return;}
+      if(result.error){lastVoiceError=result.error.message;failed=true;offerVoiceRecovery(chunks.join(''));return;}
       hint.textContent='';
       const ok=await playUrl(result.url,epoch);
       if(!ok&&epoch===audioEpoch){failed=true;offerVoiceRecovery(chunks.join(''));}
