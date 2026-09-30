@@ -647,57 +647,73 @@ async function ttsUrl(text,voice,speed,style="conversation"){
   const key=style+'|'+voice+'|'+speed+'|'+text;
   if(ttsCache.has(key))return ttsCache.get(key);
   const task=(async()=>{
-    const r=await fetch(BACKEND+'/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,voice,speed,style})});
-    if(!r.ok)throw new Error('음성 생성 실패');
-    return URL.createObjectURL(await r.blob());
+    for(let attempt=0;attempt<2;attempt++){
+      const controller=new AbortController();
+      const timer=setTimeout(()=>controller.abort(),style==='lesson'?30000:12000);
+      try{
+        const r=await fetch(BACKEND+'/tts',{method:'POST',headers:{'Content-Type':'application/json'},signal:controller.signal,body:JSON.stringify({text,voice,speed,style})});
+        if(!r.ok){const err=new Error('음성 생성 실패 ('+r.status+')');err.retryable=r.status===429||r.status>=500;throw err;}
+        const blob=await r.blob();
+        if(!blob.size)throw new Error('빈 음성 응답');
+        return URL.createObjectURL(blob);
+      }catch(e){if(attempt===1||e.retryable===false)throw e;}
+      finally{clearTimeout(timer);}
+    }
   })();
-  task.catch(()=>ttsCache.delete(key));
+  task.catch(()=>{if(ttsCache.get(key)===task)ttsCache.delete(key);});
   ttsCache.set(key,task);
-  if(ttsCache.size>20){
-    const oldest=ttsCache.keys().next().value,dropped=ttsCache.get(oldest);
-    ttsCache.delete(oldest);
-    Promise.resolve(dropped).then(u=>URL.revokeObjectURL(u)).catch(()=>{});
-  }
+  // Only evict completed URLs. Pending audio may still be waiting in a queue.
+  task.then(()=>{
+    if(ttsCache.size>40){const oldest=ttsCache.keys().next().value;ttsCache.delete(oldest);}
+  },()=>{});
   return task;
 }
+
 function playUrl(url,epoch,offset=0){
   return new Promise(resolve=>{
     if(epoch!==audioEpoch)return resolve(false);
-    const p=ensureAudio();
-    const finish=ok=>{p.removeEventListener('ended',onEnd);p.removeEventListener('error',onErr);p.removeEventListener('moshi-stop',onStop);p.removeEventListener('loadedmetadata',seek);resolve(ok);};
-    const onStop=()=>finish(false);p.addEventListener('moshi-stop',onStop);
-    const onEnd=()=>finish(epoch===audioEpoch);
-    const onErr=()=>finish(false);
-    p.addEventListener('ended',onEnd);p.addEventListener('error',onErr);
-    const seek=()=>{if(offset&&epoch===audioEpoch)p.currentTime=Math.min(offset,Number.isFinite(p.duration)?Math.max(0,p.duration-.05):offset);};
-    p.addEventListener('loadedmetadata',seek,{once:true});
-    p.src=url;
-    const played=p.play();
-    if(played&&played.catch)played.catch(()=>{finish(false);offerTapToPlay(url,epoch);});
+    const p=ensureAudio();let settled=false,timer,button;
+    const finish=ok=>{
+      if(settled)return;settled=true;clearTimeout(timer);button?.remove();
+      for(const [name,fn] of events)p.removeEventListener(name,fn);
+      avatar.classList.remove('speaking');resolve(ok);
+    };
+    const watch=()=>{clearTimeout(timer);timer=setTimeout(()=>{p.pause();finish(false);},20000);};
+    const onStop=()=>finish(false),onEnd=()=>finish(epoch===audioEpoch),onErr=()=>finish(false);
+    const seek=()=>{if(offset&&epoch===audioEpoch){try{p.currentTime=Math.min(offset,Number.isFinite(p.duration)?Math.max(0,p.duration-.05):offset);}catch(e){}}};
+    const play=()=>{
+      if(settled||epoch!==audioEpoch)return finish(false);
+      button?.remove();watch();
+      try{Promise.resolve(p.play()).catch(e=>{
+        if(settled||epoch!==audioEpoch)return;
+        if(e.name!=='NotAllowedError'){finish(false);return;}
+        clearTimeout(timer);hint.textContent='브라우저가 자동 재생을 막았어요. ';
+        button=document.createElement('button');button.className='tap-play';button.textContent='🔊 탭해서 선생님 목소리 듣기';
+        button.onclick=()=>{audioUnlocked=true;hint.textContent='';play();};hint.appendChild(button);
+        // Keep this queue item pending so a tap resumes every following sentence.
+      });}catch(e){finish(false);}
+    };
+    const events=[['ended',onEnd],['error',onErr],['moshi-stop',onStop],['loadedmetadata',seek],['timeupdate',watch],['playing',watch]];
+    for(const [name,fn] of events)p.addEventListener(name,fn);
+    p.src=url;play();
   });
 }
-// 자동 재생이 끝내 막히면 조용히 실패하지 않고 한 번 탭할 자리를 만들어 줍니다.
-function offerTapToPlay(url,epoch){
-  if(epoch!==audioEpoch)return;
-  hint.textContent='';
-  const b=document.createElement('button');
-  b.className='tap-play';b.textContent='🔊 탭해서 선생님 목소리 듣기';
-  b.onclick=()=>{audioUnlocked=true;hint.textContent='';playUrl(url,audioEpoch);};
-  hint.appendChild(b);
-}
+
 async function speakBackend(text){
   const clean=String(text||'').trim();
   if(!clean||state.recording||state.acquiring)return;
   stopAllAudio();ensureAudio();
   const epoch=audioEpoch;
   const voice=$('#voiceChoice').value,speed=Number($('#voiceSpeed').value);
-  const jobs=splitForSpeech(clean).map(chunk=>ttsUrl(chunk,voice,speed));
+  const jobs=splitForSpeech(clean).map(chunk=>ttsUrl(chunk,voice,speed).then(url=>({url}),error=>({error})));
+  hint.textContent='선생님 음성을 준비하고 있어요…';
   for(let i=0;i<jobs.length;i++){
     let url;
-    try{url=await jobs[i];}
-    catch(e){if(epoch===audioEpoch&&i===0)offerVoiceRecovery(clean);return;}
+    try{const result=await jobs[i];if(result.error)throw result.error;url=result.url;}
+    catch(e){if(epoch===audioEpoch)offerVoiceRecovery(clean);return;}
     if(epoch!==audioEpoch)return;
-    if(!await playUrl(url,epoch))return;
+    hint.textContent='';
+    if(!await playUrl(url,epoch)){if(epoch===audioEpoch)offerVoiceRecovery(clean);return;}
   }
 }
 function fallbackSpeak(text){
@@ -753,29 +769,67 @@ function parseStream(full){
   if(jpMatch)return {jp:jpMatch[1].trim(),ko:koMatch?koMatch[1].trim():''};
   return {jp:/^\s*J?P?\s*$/i.test(full)?'':full,ko:''};
 }
+// Queue complete sentences as they arrive; never read an unfinished word.
+function createReplySpeech(){
+  stopAllAudio();
+  const epoch=audioEpoch,voice=$('#voiceChoice').value,speed=Number($('#voiceSpeed').value);
+  let consumed=0,chain=Promise.resolve(),failed=false;
+  const chunks=[];
+  function enqueue(text){
+    if(!text.trim()||epoch!==audioEpoch||failed)return;
+    const clean=stripFurigana(text);chunks.push(clean);
+    // Attach rejection handling immediately, including prefetches awaiting their turn.
+    const job=ttsUrl(clean,voice,speed).then(url=>({url}),error=>({error}));
+    chain=chain.then(async()=>{
+      if(failed||epoch!==audioEpoch)return;
+      hint.textContent='선생님 음성을 준비하고 있어요…';
+      const result=await job;
+      if(epoch!==audioEpoch)return;
+      if(result.error){failed=true;offerVoiceRecovery(chunks.join(''));return;}
+      hint.textContent='';
+      const ok=await playUrl(result.url,epoch);
+      if(!ok&&epoch===audioEpoch){failed=true;offerVoiceRecovery(chunks.join(''));}
+    }).catch(()=>{if(epoch===audioEpoch){failed=true;offerVoiceRecovery(chunks.join(''));}});
+  }
+  return {
+    feed(jp,done=false){
+      if(epoch!==audioEpoch)return;
+      if(failed){if(done)offerVoiceRecovery(stripFurigana(jp));return;}
+      let rest=jp.slice(consumed),cut=0;
+      // Wait for sentence punctuation, not the JP/KO newline or complete response.
+      for(let i=0;i<rest.length;i++){
+        if(/[。！？!?]/.test(rest[i])&&i+1-cut>=12){enqueue(rest.slice(cut,i+1));cut=i+1;}
+      }
+      consumed+=cut;
+      if(done&&consumed<jp.length){enqueue(jp.slice(consumed));consumed=jp.length;}
+    },
+    cancel(){if(epoch===audioEpoch)stopAllAudio();},
+    get done(){return chain;}
+  };
+}
+
 function makeAiBubble(){
   const d=document.createElement('div');d.className='bubble ai';
   const jpEl=document.createElement('span');jpEl.className='jp';
   const koEl=document.createElement('span');koEl.style.cssText='color:var(--muted);font-size:13px';
   d.append(jpEl,document.createElement('br'),koEl);
   transcript.appendChild(d);scrollDown();
-  let spoken=false;
-  const speak=jp=>{spoken=true;state.lastAiText=jp;speakBackend(stripFurigana(jp));};
+  const speech=createReplySpeech();
   return {
     node:d,
-    remove(){d.remove();},
+    remove(){speech.cancel();d.remove();},
     update(full){
       const {jp,ko}=parseStream(full);
       if(jpEl.textContent!==jp)jpEl.textContent=jp;
       if(koEl.textContent!==ko)koEl.textContent=ko;
       scrollDown();
-      if(!spoken&&jp&&/JP[:：][^\n]*\n/i.test(full))speak(jp);
+      if(jp){state.lastAiText=jp;speech.feed(jp,/JP[:：][^\n]*\n/i.test(full));}
     },
     finish(full){
       const {jp,ko}=parseReply(full);
       jpEl.textContent=jp;koEl.textContent=ko;
       state.lastAiText=jp;
-      if(!spoken)speak(jp);
+      speech.feed(jp,true);
       const save=document.createElement('button');
       save.className='word-speak';save.textContent='＋ 표현 저장';
       save.onclick=()=>{saveExpression(jp,ko);save.textContent='저장됨';save.disabled=true;};
