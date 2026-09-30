@@ -167,7 +167,7 @@ body{background:#0e121d}.app{max-width:460px;background:var(--night);isolation:i
   </main><nav class="bottom-nav" aria-label="주요 메뉴"><button data-page="home" aria-current="page"><span aria-hidden="true">⌂</span>홈</button><button data-page="lesson" ><span aria-hidden="true">▷</span>강의</button><button data-page="review" ><span aria-hidden="true">▤</span>복습</button><button data-page="records" ><span aria-hidden="true">◷</span>기록</button></nav>
 </div>
 <div class="overlay settings-panel" id="settingsOverlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="settingsTitle"><div class="panel-head"><h2 id="settingsTitle">내 학습 환경</h2><button class="ghost" id="settingsClose">완료</button></div>    <label class="setting">사용자<select id="userPick"></select></label>
-    <div class="row"><button class="ghost" id="userAddBtn">＋ 사용자 추가</button><button class="ghost" id="userManageBtn">✏️ 이름 · 삭제</button></div>
+    <div class="row"><button class="ghost" id="userAddBtn">＋ 사용자 추가</button><button class="ghost" id="userManageBtn">사용자 · 비밀번호 관리</button></div>
     <div class="foot" id="userHelp">사용자마다 기억 · 통화기록 · 오답노트 · 표현이 따로 저장돼요.</div>
     <div class="lvl" id="lvlPick">
       <button data-lvl="beginner" class="on">초급 N5-N4</button>
@@ -1406,6 +1406,56 @@ function expressions(){try{const items=JSON.parse(localStorage.getItem(k('expres
 function saveExpression(jp,ko){const items=expressions();if(items.some(x=>x.jp===jp))return;items.unshift({jp,ko});try{localStorage.setItem(k('expressions'),JSON.stringify(items.slice(0,100)));}catch(e){addSys('저장 공간이 부족해 표현을 저장하지 못했어요.');}}
 $('#reviewBtn').onclick=()=>{const area=$('#reviewBody');area.textContent='';$('#reviewOverlay').style.display='flex';const items=expressions();if(!items.length){area.textContent='통화 중 AI 대사 아래의 표현 저장을 눌러보세요.';return;}items.forEach(item=>{const card=document.createElement('div');card.className='word-card';const jp=document.createElement('div');jp.className='word-jp';jp.textContent=item.jp;const meaning=document.createElement('div');meaning.className='word-mean';meaning.hidden=true;meaning.textContent=item.ko||'저장된 번역이 없어요.';const reveal=document.createElement('button');reveal.className='word-speak';reveal.textContent='뜻 확인';reveal.onclick=()=>{meaning.hidden=!meaning.hidden;reveal.textContent=meaning.hidden?'뜻 확인':'뜻 숨기기';};const listen=document.createElement('button');listen.className='word-speak';listen.textContent='🔊 듣고 따라 말하기';listen.onclick=()=>{unlockAudio();speakBackend(stripFurigana(item.jp));};card.append(jp,meaning,reveal,listen);area.append(card);});};
 $('#reviewClose').onclick=()=>{$('#reviewOverlay').style.display='none';stopAllAudio();};
+/* Local profile PIN: convenience lock, not server authentication. */
+let pinFlowBusy=false;
+function askPin(title,confirmPin=false){
+  return new Promise(resolve=>{
+    const previous=document.activeElement;
+    const dialog=document.createElement('dialog');
+    dialog.style.cssText='margin:auto;width:min(360px,90vw);padding:26px;border:1px solid #454963;border-radius:22px;background:#242741;color:#f4f1ea';
+    dialog.innerHTML='<form><h2 style="font-size:19px;margin-bottom:12px"></h2><p style="font-size:13px;color:#aaaec5;margin-bottom:18px"></p><label>비밀번호<input aria-label="비밀번호 숫자 4자리" type="password" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" autocomplete="off" required style="display:block;width:100%;margin:8px 0 16px;padding:12px;font-size:24px;letter-spacing:12px;border-radius:10px"></label><label class="pin-repeat">비밀번호 확인<input aria-label="비밀번호 확인 숫자 4자리" type="password" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" autocomplete="off" style="display:block;width:100%;margin:8px 0 16px;padding:12px;font-size:24px;letter-spacing:12px;border-radius:10px"></label><div role="alert" style="color:#ffae9c;font-size:13px;margin-bottom:12px"></div><div style="display:flex;gap:10px"><button type="button" class="ghost" style="flex:1">취소</button><button type="submit" class="ghost" style="flex:1">확인</button></div></form>';
+    dialog.querySelector('h2').textContent=title;
+    dialog.querySelector('p').textContent=confirmPin?'숫자 4자리를 두 번 입력해주세요. 이 브라우저에 저장되며 자동 복구 기능은 없어요.':'전환할 사용자의 숫자 4자리 비밀번호를 입력해주세요.';
+    const inputs=dialog.querySelectorAll('input');
+    dialog.querySelector('.pin-repeat').hidden=!confirmPin;inputs[1].required=confirmPin;
+    inputs.forEach(input=>input.addEventListener('input',()=>{input.value=input.value.replace(/[^0-9]/g,'').slice(0,4);}));
+    const finish=value=>{dialog.close();dialog.remove();previous?.focus();resolve(value);};
+    dialog.querySelector('button').onclick=()=>finish(null);
+    dialog.addEventListener('cancel',e=>{e.preventDefault();finish(null);});
+    dialog.querySelector('form').onsubmit=e=>{e.preventDefault();if(!/^[0-9]{4}$/.test(inputs[0].value))return;if(confirmPin&&inputs[0].value!==inputs[1].value){dialog.querySelector('[role=alert]').textContent='비밀번호가 서로 달라요.';inputs[1].value='';inputs[1].focus();return;}finish(inputs[0].value);};
+    document.body.appendChild(dialog);dialog.showModal();inputs[0].focus();
+  });
+}
+async function pinDigest(pin,salt){
+  const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(pin),'PBKDF2',false,['deriveBits']);
+  const bits=await crypto.subtle.deriveBits({name:'PBKDF2',hash:'SHA-256',salt:new TextEncoder().encode(salt),iterations:100000},key,256);
+  return Array.from(new Uint8Array(bits),v=>v.toString(16).padStart(2,'0')).join('');
+}
+async function storePin(id,pin){
+  const salt=Array.from(crypto.getRandomValues(new Uint8Array(16)),v=>v.toString(16).padStart(2,'0')).join('');
+  const hash=await pinDigest(pin,salt);
+  localStorage.setItem('userPin:'+id,JSON.stringify({salt,hash}));
+}
+async function authorizeUser(id){
+  const user=users().find(u=>u.id===id);if(!user)return false;
+  const raw=localStorage.getItem('userPin:'+id);
+  if(!raw){const pin=await askPin(user.name+' · 비밀번호 설정',true);if(pin===null)return false;await storePin(id,pin);return true;}
+  const saved=JSON.parse(raw);
+  const retryKey='userPinRetry:'+id;
+  let retry=JSON.parse(localStorage.getItem(retryKey)||'{}');
+  if(retry.until>Date.now()){alert('입력이 여러 번 틀렸어요. 30초 후 다시 시도해주세요.');return false;}
+  if(retry.until)retry={};
+  const pin=await askPin(user.name+' · 사용자 확인');if(pin===null)return false;
+  if(await pinDigest(pin,saved.salt)!==saved.hash){const count=(retry.count||0)+1;localStorage.setItem(retryKey,JSON.stringify({count,until:count>=5?Date.now()+30000:0}));alert('비밀번호가 맞지 않아요.');return false;}
+  localStorage.removeItem(retryKey);return true;
+}
+async function withPinFlow(action){
+  if(pinFlowBusy)return;
+  pinFlowBusy=true;
+  try{await action();}catch(e){alert('비밀번호를 확인하거나 저장하지 못했어요. 브라우저 저장 공간과 보안 연결을 확인해주세요.');}
+  finally{pinFlowBusy=false;renderUserPick();}
+}
+
 /* ===================== 사용자 UI ===================== */
 function renderUserPick(){
   const sel=$('#userPick');if(!sel)return;
@@ -1420,7 +1470,16 @@ function applyUserToUI(){
   renderUserPick();
   if(window.shellReady)window.refreshShell(true);
 }
-function switchUser(id){
+async function switchUser(id){
+  if(id===currentUser()){renderUserPick();return;}
+  return withPinFlow(async()=>{
+    renderUserPick();
+    if(state.active){alert('통화 중에는 사용자를 바꿀 수 없어요.');return;}
+    if(!await authorizeUser(id))return;
+    commitUserSwitch(id);
+  });
+}
+function commitUserSwitch(id){
   if(state.active){alert('통화 중에는 사용자를 바꿀 수 없어요. 먼저 통화를 끊어주세요.');renderUserPick();return;}
   if(!users().some(u=>u.id===id))return;
   localStorage.setItem(CUR_KEY,id);
@@ -1441,29 +1500,38 @@ function renderUserManage(){
     sub.textContent='기억 갱신: '+timeAgo(loadProfile(u.id).updatedAt);
     const row=document.createElement('div');row.className='row';
     const ren=document.createElement('button');ren.className='ghost';ren.textContent='✏️ 이름 변경';
-    ren.onclick=()=>{const n=prompt('새 이름:',u.name);if(n&&n.trim()){renameUser(u.id,n);applyUserToUI();renderUserManage();}};
+    ren.onclick=()=>withPinFlow(async()=>{if(!await authorizeUser(u.id))return;const n=prompt('새 이름:',u.name);if(n&&n.trim()){renameUser(u.id,n);applyUserToUI();renderUserManage();}});
     const del=document.createElement('button');del.className='ghost';del.style.color='var(--red)';del.textContent='🗑 삭제';
-    del.onclick=()=>{
+    del.onclick=()=>withPinFlow(async()=>{
       if(users().length<=1){alert('마지막 사용자는 삭제할 수 없어요.');return;}
       if(state.active){alert('통화 중에는 삭제할 수 없어요.');return;}
+      if(u.id===currentUser()){alert('다른 사용자로 먼저 전환한 뒤 삭제해주세요.');return;}
+      if(!await authorizeUser(u.id))return;
       if(!confirm(`'${u.name}' 의 기억 · 통화기록 · 오답노트 · 표현을 모두 지울까요?\n되돌릴 수 없어요.`))return;
       const wasCurrent=u.id===currentUser();
       deleteUser(u.id);
-      if(wasCurrent)switchUser(users()[0].id);else applyUserToUI();
+      localStorage.removeItem('userPin:'+u.id);localStorage.removeItem('userPinRetry:'+u.id);
+      applyUserToUI();
       renderUserManage();
-    };
+    });
+    const pinButton=document.createElement('button');pinButton.className='ghost';pinButton.textContent=localStorage.getItem('userPin:'+u.id)?'비밀번호 변경':'비밀번호 설정';
+    pinButton.onclick=()=>withPinFlow(async()=>{const exists=!!localStorage.getItem('userPin:'+u.id);if(!await authorizeUser(u.id))return;if(exists){const pin=await askPin(u.name+' · 새 비밀번호',true);if(pin===null)return;await storePin(u.id,pin);}renderUserManage();});
+    row.style.flexWrap='wrap';row.append(pinButton);
     row.append(ren,del);card.append(name,sub,row);box.appendChild(card);
   });
   $('#userOverlay').style.display='flex';
 }
 $('#userPick').onchange=e=>switchUser(e.target.value);
-$('#userAddBtn').onclick=()=>{
-  const name=prompt('새 사용자 이름을 입력하세요:','');
-  if(name===null)return;
-  const id=addUser(name);
-  if(!id){alert(`사용자는 최대 ${MAX_USERS}명까지 추가할 수 있어요.`);return;}
-  switchUser(id);
-};
+$('#userAddBtn').onclick=()=>withPinFlow(async()=>{
+  if(state.active){alert('통화를 종료한 뒤 사용자를 추가해주세요.');return;}
+  if(users().length>=MAX_USERS){alert('사용자는 최대 '+MAX_USERS+'명까지 추가할 수 있어요.');return;}
+  const name=prompt('새 사용자 이름을 입력하세요:','');if(name===null)return;
+  const pin=await askPin((name.trim()||'새 사용자')+' · 비밀번호 설정',true);if(pin===null)return;
+  const before=localStorage.getItem(USERS_KEY);
+  const id=addUser(name);if(!id)return;
+  try{await storePin(id,pin);}catch(e){if(before===null)localStorage.removeItem(USERS_KEY);else localStorage.setItem(USERS_KEY,before);throw e;}
+  commitUserSwitch(id);
+});
 $('#userManageBtn').onclick=renderUserManage;
 $('#userCloseBtn').onclick=()=>{$('#userOverlay').style.display='none';};
 
